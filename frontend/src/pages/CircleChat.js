@@ -27,7 +27,39 @@ function CircleChat({ token, circleId, onBack }) {
   
   const currentUser = JSON.parse(atob(token.split('.')[1]));
   
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  };
+  
   useEffect(() => {
+    const fetchCircleDetails = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/api/circles`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const found = res.data.find(c => c.id === parseInt(circleId));
+        setCircle(found);
+      } catch (err) {
+        console.error('Failed to load circle');
+      }
+    };
+    
+    const fetchMessages = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/api/messages/${circleId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setMessages(res.data);
+        setLoading(false);
+        scrollToBottom();
+      } catch (err) {
+        console.error('Failed to load messages');
+        setLoading(false);
+      }
+    };
+    
     fetchCircleDetails();
     fetchMessages();
     
@@ -85,39 +117,7 @@ function CircleChat({ token, circleId, onBack }) {
     return () => {
       newSocket.close();
     };
-  }, [circleId, token]);
-  
-  const fetchCircleDetails = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/circles`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const found = res.data.find(c => c.id === parseInt(circleId));
-      setCircle(found);
-    } catch (err) {
-      console.error('Failed to load circle');
-    }
-  };
-  
-  const fetchMessages = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/messages/${circleId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setMessages(res.data);
-      setLoading(false);
-      scrollToBottom();
-    } catch (err) {
-      console.error('Failed to load messages');
-      setLoading(false);
-    }
-  };
-  
-  const scrollToBottom = () => {
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
-  };
+  }, [circleId, token, currentUser.id]);
   
   const sendMessage = async (e) => {
     e.preventDefault();

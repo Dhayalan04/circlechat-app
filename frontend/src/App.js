@@ -1,4 +1,4 @@
-import React, { useState, createContext, useContext } from 'react';
+import React, { useState, createContext } from 'react';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import { Toaster } from 'react-hot-toast';
