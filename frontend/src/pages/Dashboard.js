@@ -2,14 +2,14 @@ import React, { useState, useEffect, useCallback, useContext } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiSun, FiMoon, FiLogOut, FiPlus, FiUsers, FiCopy, FiTrash2, FiUser, FiSettings, FiX, FiEdit2 } from 'react-icons/fi';
+import { FiLogOut, FiPlus, FiUsers, FiCopy, FiTrash2, FiSettings, FiX } from 'react-icons/fi';
 import CircleChat from './CircleChat';
 import ProfileModal from '../components/ProfileModal';
 import API_URL from '../config';
 import { DarkModeContext, AuthContext } from '../App';
 
 function Dashboard() {
-  const { darkMode, setDarkMode } = useContext(DarkModeContext);
+  const { darkMode } = useContext(DarkModeContext);
   const { token, setToken, user, setUser } = useContext(AuthContext);
   const [circles, setCircles] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -43,7 +43,7 @@ function Dashboard() {
       return;
     }
     try {
-      const res = await axios.post(`${API_URL}/api/circles`, 
+      await axios.post(`${API_URL}/api/circles`, 
         { name: circleName },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -106,14 +106,6 @@ function Dashboard() {
   const copyInviteCode = (code) => {
     navigator.clipboard.writeText(code);
     toast.success('Invite code copied!');
-  };
-  
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setToken(null);
-    setUser(null);
-    toast.success('Logged out successfully');
   };
   
   if (selectedCircle) {
