@@ -2,15 +2,19 @@ import React, { useState, useEffect, useCallback, useContext } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
+import { FiSun, FiMoon, FiLogOut, FiPlus, FiUsers, FiCopy, FiTrash2, FiUser, FiSettings, FiX, FiEdit2 } from 'react-icons/fi';
 import CircleChat from './CircleChat';
+import ProfileModal from '../components/ProfileModal';
 import API_URL from '../config';
-import { DarkModeContext } from '../App';
+import { DarkModeContext, AuthContext } from '../App';
 
-function Dashboard({ token, setToken }) {
+function Dashboard() {
   const { darkMode, setDarkMode } = useContext(DarkModeContext);
+  const { token, setToken, user, setUser } = useContext(AuthContext);
   const [circles, setCircles] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [circleName, setCircleName] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const [loading, setLoading] = useState(true);
@@ -43,7 +47,7 @@ function Dashboard({ token, setToken }) {
         { name: circleName },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      toast.success(`Circle "${circleName}" created! Invite code: ${res.data.invite_code}`);
+      toast.success(`Circle "${circleName}" created!`);
       setShowCreateModal(false);
       setCircleName('');
       fetchCircles();
@@ -71,19 +75,50 @@ function Dashboard({ token, setToken }) {
     }
   };
   
-  const logout = () => {
-    localStorage.removeItem('token');
-    setToken(null);
+  const leaveCircle = async (circleId, circleName) => {
+    if (window.confirm(`Are you sure you want to leave "${circleName}"?`)) {
+      try {
+        await axios.delete(`${API_URL}/api/circles/${circleId}/leave`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        toast.success(`Left "${circleName}"`);
+        fetchCircles();
+      } catch (err) {
+        toast.error('Failed to leave circle');
+      }
+    }
   };
   
-  const openCircleChat = (circle) => {
-    setSelectedCircle(circle);
+  const deleteCircle = async (circleId, circleName) => {
+    if (window.confirm(`Are you sure you want to delete "${circleName}"? This action cannot be undone.`)) {
+      try {
+        await axios.delete(`${API_URL}/api/circles/${circleId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        toast.success(`"${circleName}" deleted`);
+        fetchCircles();
+      } catch (err) {
+        toast.error('Failed to delete circle');
+      }
+    }
+  };
+  
+  const copyInviteCode = (code) => {
+    navigator.clipboard.writeText(code);
+    toast.success('Invite code copied!');
+  };
+  
+  const logout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setToken(null);
+    setUser(null);
+    toast.success('Logged out successfully');
   };
   
   if (selectedCircle) {
     return (
       <CircleChat 
-        token={token} 
         circleId={selectedCircle.id} 
         onBack={() => setSelectedCircle(null)} 
       />
@@ -91,155 +126,193 @@ function Dashboard({ token, setToken }) {
   }
   
   return (
-    <div className={darkMode ? 'dark' : ''}>
-      <div style={{ minHeight: '100vh', background: darkMode ? '#1a1a2e' : '#f3f4f6' }}>
-        {/* Header */}
-        <motion.div 
-          initial={{ y: -100 }}
-          animate={{ y: 0 }}
-          style={{ background: darkMode ? '#16213e' : 'white', borderBottom: `1px solid ${darkMode ? '#0f3460' : '#e5e7eb'}`, padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-        >
-          <h1 style={{ fontSize: '24px', margin: 0, color: '#3B82F6' }}>CircleChat</h1>
-          <div style={{ display: 'flex', gap: '12px' }}>
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={() => setDarkMode(!darkMode)}
-              style={{ padding: '8px 16px', background: darkMode ? '#f3f4f6' : '#1a1a2e', color: darkMode ? '#1a1a2e' : 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-            >
-              {darkMode ? '☀️' : '🌙'}
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={logout}
-              style={{ padding: '8px 16px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
-            >
-              Logout
-            </motion.button>
+    <div className={`dashboard-container ${darkMode ? 'dark' : ''}`}>
+      {/* Sidebar */}
+      <aside className="sidebar">
+        <div className="sidebar-header">
+          <div className="logo">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h4l4 4 4-4h4c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" fill="currentColor"/>
+              <circle cx="8" cy="10" r="2" fill="white"/>
+              <circle cx="16" cy="10" r="2" fill="white"/>
+            </svg>
+            <span>CircleChat</span>
           </div>
-        </motion.div>
-        
-        {/* Main content */}
-        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '32px 24px' }}>
-          <div style={{ display: 'flex', gap: '16px', marginBottom: '32px' }}>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setShowCreateModal(true)}
-              style={{ padding: '12px 24px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold' }}
-            >
-              + Create Circle
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setShowJoinModal(true)}
-              style={{ padding: '12px 24px', background: darkMode ? '#0f3460' : 'white', border: `1px solid ${darkMode ? '#1a1a2e' : '#d1d5db'}`, borderRadius: '12px', cursor: 'pointer', color: darkMode ? 'white' : 'black' }}
-            >
-              Join Circle
-            </motion.button>
-          </div>
-          
-          <AnimatePresence>
-            {loading ? (
-              <div style={{ textAlign: 'center', padding: '50px' }}>
-                <div className="skeleton" style={{ width: '200px', height: '20px', margin: '10px auto' }}></div>
-                <div className="skeleton" style={{ width: '300px', height: '20px', margin: '10px auto' }}></div>
-              </div>
-            ) : circles.length === 0 ? (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                style={{ textAlign: 'center', padding: '50px', background: darkMode ? '#16213e' : 'white', borderRadius: '16px', color: darkMode ? 'white' : 'black' }}
-              >
-                <p>No circles yet. Create your first circle!</p>
-              </motion.div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
-                {circles.map((circle, index) => (
-                  <motion.div
-                    key={circle.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                    whileHover={{ y: -5, scale: 1.02 }}
-                    onClick={() => openCircleChat(circle)}
-                    style={{ background: darkMode ? '#16213e' : 'white', borderRadius: '16px', padding: '20px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', cursor: 'pointer', color: darkMode ? 'white' : 'black' }}
-                  >
-                    <h3 style={{ margin: '0 0 8px 0' }}>{circle.name}</h3>
-                    <p style={{ margin: 0, color: darkMode ? '#aaa' : '#6b7280', fontSize: '14px' }}>Invite code: {circle.invite_code}</p>
-                  </motion.div>
-                ))}
-              </div>
-            )}
-          </AnimatePresence>
         </div>
         
-        {/* Modals with animations */}
-        <AnimatePresence>
-          {showCreateModal && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-            >
+        <div className="sidebar-actions">
+          <button onClick={() => setShowCreateModal(true)} className="action-btn primary">
+            <FiPlus /> New Circle
+          </button>
+          <button onClick={() => setShowJoinModal(true)} className="action-btn secondary">
+            <FiUsers /> Join Circle
+          </button>
+        </div>
+        
+        <div className="circles-list">
+          <h3>Your Circles</h3>
+          {loading ? (
+            <div className="skeleton-list">
+              <div className="skeleton"></div>
+              <div className="skeleton"></div>
+              <div className="skeleton"></div>
+            </div>
+          ) : circles.length === 0 ? (
+            <div className="empty-state">
+              <p>No circles yet</p>
+              <span>Create or join a circle to start chatting</span>
+            </div>
+          ) : (
+            circles.map((circle) => (
               <motion.div
-                initial={{ scale: 0.9, y: 20 }}
-                animate={{ scale: 1, y: 0 }}
-                exit={{ scale: 0.9, y: 20 }}
-                style={{ background: darkMode ? '#16213e' : 'white', borderRadius: '24px', padding: '24px', width: '400px', color: darkMode ? 'white' : 'black' }}
+                key={circle.id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="circle-item"
+                onClick={() => setSelectedCircle(circle)}
               >
-                <h2 style={{ margin: '0 0 16px 0' }}>Create New Circle</h2>
-                <input
-                  type="text"
-                  value={circleName}
-                  onChange={(e) => setCircleName(e.target.value)}
-                  placeholder="Circle name"
-                  style={{ width: '100%', padding: '12px', border: `1px solid ${darkMode ? '#0f3460' : '#d1d5db'}`, background: darkMode ? '#0f3460' : 'white', color: darkMode ? 'white' : 'black', borderRadius: '12px', marginBottom: '24px' }}
-                  autoFocus
-                />
-                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                  <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setShowCreateModal(false)} style={{ padding: '8px 16px', background: '#9ca3af', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Cancel</motion.button>
-                  <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={createCircle} style={{ padding: '8px 16px', background: '#3B82F6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Create</motion.button>
+                <div className="circle-avatar">
+                  <FiUsers />
+                </div>
+                <div className="circle-info">
+                  <h4>{circle.name}</h4>
+                  <span>{circle.member_count || 1} members</span>
+                </div>
+                <div className="circle-actions" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => copyInviteCode(circle.invite_code)} title="Copy invite code">
+                    <FiCopy />
+                  </button>
+                  <button onClick={() => leaveCircle(circle.id, circle.name)} title="Leave circle">
+                    <FiLogOut />
+                  </button>
+                  {circle.created_by === user?.id && (
+                    <button onClick={() => deleteCircle(circle.id, circle.name)} title="Delete circle">
+                      <FiTrash2 />
+                    </button>
+                  )}
                 </div>
               </motion.div>
-            </motion.div>
+            ))
           )}
-          
-          {showJoinModal && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-            >
-              <motion.div
-                initial={{ scale: 0.9, y: 20 }}
-                animate={{ scale: 1, y: 0 }}
-                exit={{ scale: 0.9, y: 20 }}
-                style={{ background: darkMode ? '#16213e' : 'white', borderRadius: '24px', padding: '24px', width: '400px', color: darkMode ? 'white' : 'black' }}
-              >
-                <h2 style={{ margin: '0 0 16px 0' }}>Join Circle</h2>
-                <input
-                  type="text"
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                  placeholder="Enter invite code"
-                  style={{ width: '100%', padding: '12px', border: `1px solid ${darkMode ? '#0f3460' : '#d1d5db'}`, background: darkMode ? '#0f3460' : 'white', color: darkMode ? 'white' : 'black', borderRadius: '12px', marginBottom: '24px', textTransform: 'uppercase' }}
-                  autoFocus
-                />
-                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                  <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setShowJoinModal(false)} style={{ padding: '8px 16px', background: '#9ca3af', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Cancel</motion.button>
-                  <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={joinCircle} style={{ padding: '8px 16px', background: '#3B82F6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Join</motion.button>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+        </div>
+        
+        <div className="sidebar-footer">
+          <button onClick={() => setShowProfileModal(true)} className="profile-btn">
+            <div className="profile-avatar">
+              {user?.avatar ? (
+                <img src={user.avatar} alt={user?.username} />
+              ) : (
+                <span>{user?.username?.[0]?.toUpperCase() || 'U'}</span>
+              )}
+            </div>
+            <div className="profile-info">
+              <span className="username">{user?.username}</span>
+              <span className="status">Online</span>
+            </div>
+            <FiSettings />
+          </button>
+        </div>
+      </aside>
+      
+      {/* Main Content */}
+      <main className="dashboard-main">
+        <div className="welcome-section">
+          <h1>Welcome back, {user?.username}!</h1>
+          <p>Select a circle to start messaging</p>
+        </div>
+        
+        {circles.length > 0 && (
+          <div className="recent-circles">
+            <h2>Recent Circles</h2>
+            <div className="circles-grid">
+              {circles.slice(0, 4).map((circle) => (
+                <motion.div
+                  key={circle.id}
+                  whileHover={{ y: -5 }}
+                  className="circle-card"
+                  onClick={() => setSelectedCircle(circle)}
+                >
+                  <div className="card-avatar">
+                    <FiUsers />
+                  </div>
+                  <h3>{circle.name}</h3>
+                  <p>{circle.member_count || 1} members</p>
+                  <span className="invite-code">{circle.invite_code}</span>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        )}
+      </main>
+      
+      {/* Modals */}
+      <AnimatePresence>
+        {showCreateModal && (
+          <Modal onClose={() => setShowCreateModal(false)} title="Create New Circle" darkMode={darkMode}>
+            <input
+              type="text"
+              value={circleName}
+              onChange={(e) => setCircleName(e.target.value)}
+              placeholder="Circle name"
+              autoFocus
+            />
+            <div className="modal-actions">
+              <button onClick={() => setShowCreateModal(false)} className="secondary">Cancel</button>
+              <button onClick={createCircle} className="primary">Create</button>
+            </div>
+          </Modal>
+        )}
+        
+        {showJoinModal && (
+          <Modal onClose={() => setShowJoinModal(false)} title="Join Circle" darkMode={darkMode}>
+            <input
+              type="text"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+              placeholder="Enter invite code"
+              autoFocus
+            />
+            <div className="modal-actions">
+              <button onClick={() => setShowJoinModal(false)} className="secondary">Cancel</button>
+              <button onClick={joinCircle} className="primary">Join</button>
+            </div>
+          </Modal>
+        )}
+        
+        {showProfileModal && (
+          <ProfileModal onClose={() => setShowProfileModal(false)} />
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+// Modal Component
+function Modal({ children, onClose, title, darkMode }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="modal-overlay"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.9, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.9, y: 20 }}
+        className={`modal-content ${darkMode ? 'dark' : ''}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-header">
+          <h2>{title}</h2>
+          <button onClick={onClose}><FiX /></button>
+        </div>
+        <div className="modal-body">
+          {children}
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 

@@ -1,9 +1,12 @@
-import API_URL from '../config';
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import { motion } from 'framer-motion';
+import { DarkModeContext } from '../App';
+import API_URL from '../config';
 
-function Login({ setToken }) {
+function Login({ setToken, setUser }) {
+  const { darkMode } = useContext(DarkModeContext);
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -17,6 +20,8 @@ function Login({ setToken }) {
       const endpoint = isLogin ? '/api/login' : '/api/signup';
       const res = await axios.post(`${API_URL}${endpoint}`, { username, password });
       setToken(res.data.token);
+      setUser(res.data.user);
+      localStorage.setItem('user', JSON.stringify(res.data.user));
       toast.success(isLogin ? 'Welcome back!' : 'Account created!');
     } catch (err) {
       toast.error(err.response?.data?.error || 'Something went wrong');
@@ -26,56 +31,61 @@ function Login({ setToken }) {
   };
   
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
-      <div style={{ maxWidth: '400px', width: '100%', padding: '20px' }}>
-        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-          <h1 style={{ color: 'white', fontSize: '42px', margin: 0 }}>CircleChat</h1>
-          <p style={{ color: 'rgba(255,255,255,0.8)', marginTop: '10px' }}>Connect with your circles</p>
+    <div className={`login-container ${darkMode ? 'dark' : ''}`}>
+      <div className="login-bg"></div>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="login-card"
+      >
+        <div className="login-header">
+          <div className="logo-wrapper">
+            <svg className="logo-icon" viewBox="0 0 24 24" fill="none">
+              <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h4l4 4 4-4h4c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" fill="currentColor"/>
+              <circle cx="8" cy="10" r="2" fill="white"/>
+              <circle cx="16" cy="10" r="2" fill="white"/>
+            </svg>
+          </div>
+          <h1>CircleChat</h1>
+          <p>Connect with your circles</p>
         </div>
         
-        <div style={{ background: 'white', borderRadius: '16px', padding: '32px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
-          <h2 style={{ textAlign: 'center', marginBottom: '24px', color: '#333' }}>
-            {isLogin ? 'Welcome Back' : 'Create Account'}
-          </h2>
-          
-          <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit}>
+          <div className="input-group">
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Username"
-              style={{ width: '100%', padding: '12px', marginBottom: '16px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '16px' }}
               required
             />
-            
+          </div>
+          <div className="input-group">
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
-              style={{ width: '100%', padding: '12px', marginBottom: '24px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '16px' }}
               required
             />
-            
-            <button
-              type="submit"
-              disabled={loading}
-              style={{ width: '100%', padding: '12px', background: '#3B82F6', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', cursor: 'pointer' }}
-            >
-              {loading ? 'Loading...' : (isLogin ? 'Sign In' : 'Sign Up')}
-            </button>
-          </form>
-          
-          <div style={{ textAlign: 'center', marginTop: '24px' }}>
-            <button
-              onClick={() => setIsLogin(!isLogin)}
-              style={{ background: 'none', border: 'none', color: '#3B82F6', cursor: 'pointer' }}
-            >
-              {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
-            </button>
           </div>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            type="submit"
+            disabled={loading}
+            className="login-btn"
+          >
+            {loading ? <div className="spinner"></div> : (isLogin ? 'Sign In' : 'Sign Up')}
+          </motion.button>
+        </form>
+        
+        <div className="login-footer">
+          <button onClick={() => setIsLogin(!isLogin)}>
+            {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
+          </button>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
