@@ -4,28 +4,36 @@ import io from 'socket.io-client';
 import { motion, AnimatePresence } from 'framer-motion';
 import EmojiPicker from 'emoji-picker-react';
 import toast from 'react-hot-toast';
+import { 
+  FiArrowLeft, FiSend, FiImage, FiSmile, FiMoreVertical, 
+  FiEdit2, FiTrash2, FiCheck, FiCheckCircle, FiClock,
+  FiUsers, FiInfo, FiPaperclip, FiX, FiDownload
+} from 'react-icons/fi';
 import API_URL from '../config';
-import { DarkModeContext } from '../App';
+import { DarkModeContext, AuthContext } from '../App';
 
-function CircleChat({ token, circleId, onBack }) {
+function CircleChat({ circleId, onBack }) {
   const { darkMode } = useContext(DarkModeContext);
+  const { token, user } = useContext(AuthContext);
   const [socket, setSocket] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
   const [circle, setCircle] = useState(null);
+  const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [typingUsers, setTypingUsers] = useState(new Set());
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showMessageMenu, setShowMessageMenu] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
   const [editContent, setEditContent] = useState('');
-  const [selectedMessageForReaction, setSelectedMessageForReaction] = useState(null);
+  const [showInfo, setShowInfo] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const fileInputRef = useRef(null);
   
-  const currentUser = JSON.parse(atob(token.split('.')[1]));
+  const currentUser = user;
   
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -34,34 +42,9 @@ function CircleChat({ token, circleId, onBack }) {
   };
   
   useEffect(() => {
-    const fetchCircleDetails = async () => {
-      try {
-        const res = await axios.get(`${API_URL}/api/circles`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const found = res.data.find(c => c.id === parseInt(circleId));
-        setCircle(found);
-      } catch (err) {
-        console.error('Failed to load circle');
-      }
-    };
-    
-    const fetchMessages = async () => {
-      try {
-        const res = await axios.get(`${API_URL}/api/messages/${circleId}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setMessages(res.data);
-        setLoading(false);
-        scrollToBottom();
-      } catch (err) {
-        console.error('Failed to load messages');
-        setLoading(false);
-      }
-    };
-    
     fetchCircleDetails();
     fetchMessages();
+    fetchMembers();
     
     const newSocket = io(API_URL, {
       auth: { token },
@@ -72,7 +55,7 @@ function CircleChat({ token, circleId, onBack }) {
     newSocket.on('connect', () => {
       console.log('Connected to chat');
       newSocket.emit('join-circle', circleId);
-      newSocket.emit('user-online', circleId);
+      newSocket.emit('user-online', { circleId, userId: currentUser?.id, username: currentUser?.username });
     });
     
     newSocket.on('new-message', (message) => {
@@ -81,15 +64,17 @@ function CircleChat({ token, circleId, onBack }) {
     });
     
     newSocket.on('user-typing', ({ userId, username, isTyping }) => {
-      setTypingUsers(prev => {
-        const newSet = new Set(prev);
-        if (isTyping && userId !== currentUser.id) {
-          newSet.add(username);
-        } else {
-          newSet.delete(username);
-        }
-        return newSet;
-      });
+      if (userId !== currentUser?.id) {
+        setTypingUsers(prev => {
+          const newSet = new Set(prev);
+          if (isTyping) {
+            newSet.add(username);
+          } else {
+            newSet.delete(username);
+          }
+          return newSet;
+        });
+      }
     });
     
     newSocket.on('user-status', ({ userId, username, status }) => {
@@ -106,18 +91,72 @@ function CircleChat({ token, circleId, onBack }) {
     
     newSocket.on('message-deleted', ({ messageId }) => {
       setMessages(prev => prev.filter(msg => msg.id !== messageId));
+      toast.success('Message deleted');
     });
     
     newSocket.on('message-edited', ({ messageId, newContent }) => {
       setMessages(prev => prev.map(msg => 
         msg.id === messageId ? { ...msg, content: newContent, isEdited: true } : msg
       ));
+      toast.success('Message edited');
+    });
+    
+    newSocket.on('reaction-added', ({ messageId, emoji, userId, username }) => {
+      setMessages(prev => prev.map(msg => {
+        if (msg.id === messageId) {
+          const reactions = msg.reactions || {};
+          if (!reactions[emoji]) {
+            reactions[emoji] = [];
+          }
+          if (!reactions[emoji].includes(username)) {
+            reactions[emoji].push(username);
+          }
+          return { ...msg, reactions };
+        }
+        return msg;
+      }));
     });
     
     return () => {
       newSocket.close();
     };
-  }, [circleId, token, currentUser.id]);
+  }, [circleId, token]);
+  
+  const fetchCircleDetails = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/circles/${circleId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setCircle(res.data);
+    } catch (err) {
+      console.error('Failed to load circle');
+    }
+  };
+  
+  const fetchMembers = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/circles/${circleId}/members`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMembers(res.data);
+    } catch (err) {
+      console.error('Failed to load members');
+    }
+  };
+  
+  const fetchMessages = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/messages/${circleId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMessages(res.data);
+      setLoading(false);
+      scrollToBottom();
+    } catch (err) {
+      console.error('Failed to load messages');
+      setLoading(false);
+    }
+  };
   
   const sendMessage = async (e) => {
     e.preventDefault();
@@ -126,13 +165,22 @@ function CircleChat({ token, circleId, onBack }) {
     if (socket) {
       socket.emit('send-message', {
         circleId: parseInt(circleId),
-        content: inputMessage
+        content: inputMessage,
+        userId: currentUser?.id,
+        username: currentUser?.username
       });
       setInputMessage('');
       setShowEmojiPicker(false);
       
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       socket.emit('typing', { circleId, isTyping: false });
+    }
+  };
+  
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage(e);
     }
   };
   
@@ -156,6 +204,11 @@ function CircleChat({ token, circleId, onBack }) {
       return;
     }
     
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image must be less than 5MB');
+      return;
+    }
+    
     setUploadingImage(true);
     
     const formData = new FormData();
@@ -174,9 +227,12 @@ function CircleChat({ token, circleId, onBack }) {
           circleId: parseInt(circleId),
           content: '📷 Image',
           type: 'image',
-          imageUrl: res.data.url
+          imageUrl: res.data.url,
+          userId: currentUser?.id,
+          username: currentUser?.username
         });
       }
+      toast.success('Image sent!');
     } catch (err) {
       toast.error('Failed to upload image');
     } finally {
@@ -184,37 +240,55 @@ function CircleChat({ token, circleId, onBack }) {
     }
   };
   
-  const deleteMessage = async (messageId) => {
-    if (socket) {
+  const deleteMessage = (messageId) => {
+    if (socket && window.confirm('Delete this message?')) {
       socket.emit('delete-message', { messageId, circleId });
-      toast.success('Message deleted');
+      setShowMessageMenu(null);
     }
   };
   
-  const editMessage = async (messageId) => {
+  const editMessage = (messageId) => {
+    const message = messages.find(m => m.id === messageId);
+    setEditingMessage(messageId);
+    setEditContent(message.content);
+    setShowMessageMenu(null);
+  };
+  
+  const saveEdit = () => {
     if (!editContent.trim()) return;
     
     if (socket) {
       socket.emit('edit-message', { 
-        messageId, 
+        messageId: editingMessage, 
         circleId, 
         newContent: editContent 
       });
       setEditingMessage(null);
       setEditContent('');
-      toast.success('Message edited');
     }
   };
   
-  const addReaction = async (messageId, emoji) => {
+  const addReaction = (messageId, emoji) => {
     if (socket) {
-      socket.emit('add-reaction', { messageId, circleId, emoji, userId: currentUser.id });
-      setSelectedMessageForReaction(null);
+      socket.emit('add-reaction', { 
+        messageId, 
+        circleId, 
+        emoji, 
+        userId: currentUser?.id,
+        username: currentUser?.username
+      });
     }
   };
   
   const formatTime = (dateString) => {
     const date = new Date(dateString);
+    const now = new Date();
+    const diff = now - date;
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    
+    if (days > 0) {
+      return `${days}d ago`;
+    }
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
   
@@ -223,62 +297,43 @@ function CircleChat({ token, circleId, onBack }) {
     setShowEmojiPicker(false);
   };
   
+  const getOnlineCount = () => {
+    return members.filter(m => onlineUsers.has(m.username)).length;
+  };
+  
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: '50px', background: darkMode ? '#1a1a2e' : '#f3f4f6', minHeight: '100vh' }}>
-        <div className="skeleton" style={{ width: '300px', height: '20px', margin: '10px auto' }}></div>
-        <div className="skeleton" style={{ width: '200px', height: '20px', margin: '10px auto' }}></div>
+      <div className={`chat-loading ${darkMode ? 'dark' : ''}`}>
+        <div className="skeleton"></div>
+        <div className="skeleton"></div>
+        <div className="skeleton"></div>
       </div>
     );
   }
   
   return (
-    <div style={{ 
-      display: 'flex', 
-      flexDirection: 'column', 
-      height: '100vh', 
-      background: darkMode ? '#1a1a2e' : '#f3f4f6',
-      color: darkMode ? 'white' : 'black'
-    }}>
-      {/* Header */}
-      <motion.div
-        initial={{ y: -100 }}
-        animate={{ y: 0 }}
-        style={{ 
-          background: darkMode ? '#16213e' : 'white', 
-          borderBottom: `1px solid ${darkMode ? '#0f3460' : '#e5e7eb'}`,
-          padding: '16px 24px', 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'space-between'
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={onBack}
-            style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: darkMode ? 'white' : 'black' }}
-          >
-            ←
-          </motion.button>
+    <div className={`chat-container ${darkMode ? 'dark' : ''}`}>
+      {/* Chat Header */}
+      <div className="chat-header">
+        <button className="back-btn" onClick={onBack}>
+          <FiArrowLeft />
+        </button>
+        <div className="chat-info" onClick={() => setShowInfo(!showInfo)}>
+          <div className="chat-avatar">
+            <FiUsers />
+          </div>
           <div>
-            <h1 style={{ fontSize: '20px', margin: 0 }}>{circle?.name || 'Circle Chat'}</h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-              <span style={{ 
-                width: '8px', 
-                height: '8px', 
-                borderRadius: '50%', 
-                background: onlineUsers.size > 0 ? '#4ade80' : '#9ca3af',
-                display: 'inline-block'
-              }}></span>
-              <p style={{ fontSize: '12px', margin: 0, color: darkMode ? '#aaa' : '#6b7280' }}>
-                {onlineUsers.size > 0 ? `${onlineUsers.size} online` : 'No one online'}
-              </p>
+            <h3>{circle?.name}</h3>
+            <div className="member-status">
+              <span className="online-dot"></span>
+              <span>{getOnlineCount()} online • {members.length} members</span>
             </div>
           </div>
         </div>
-      </motion.div>
+        <button className="info-btn" onClick={() => setShowInfo(!showInfo)}>
+          <FiInfo />
+        </button>
+      </div>
       
       {/* Typing Indicator */}
       <AnimatePresence>
@@ -287,280 +342,124 @@ function CircleChat({ token, circleId, onBack }) {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            style={{ 
-              padding: '8px 24px', 
-              background: darkMode ? '#16213e' : '#f9fafb',
-              borderBottom: `1px solid ${darkMode ? '#0f3460' : '#e5e7eb'}`
-            }}
+            className="typing-indicator"
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div className="typing-dot" style={{ width: '6px', height: '6px', background: darkMode ? '#9ca3af' : '#6b7280', borderRadius: '50%' }}></div>
-              <div className="typing-dot" style={{ width: '6px', height: '6px', background: darkMode ? '#9ca3af' : '#6b7280', borderRadius: '50%' }}></div>
-              <div className="typing-dot" style={{ width: '6px', height: '6px', background: darkMode ? '#9ca3af' : '#6b7280', borderRadius: '50%' }}></div>
-              <span style={{ fontSize: '12px', color: darkMode ? '#aaa' : '#6b7280' }}>
-                {Array.from(typingUsers).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
-              </span>
+            <div className="typing-dots">
+              <span></span><span></span><span></span>
             </div>
+            <span>{Array.from(typingUsers).join(', ')} is typing...</span>
           </motion.div>
         )}
       </AnimatePresence>
       
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-        <AnimatePresence>
-          {messages.length === 0 ? (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              style={{ textAlign: 'center', padding: '50px', color: '#9ca3af' }}
-            >
-              No messages yet. Start the conversation!
-            </motion.div>
-          ) : (
-            messages.map((msg, index) => (
+      <div className="messages-area">
+        {messages.length === 0 ? (
+          <div className="empty-chat">
+            <div className="empty-icon">💬</div>
+            <h3>No messages yet</h3>
+            <p>Start the conversation with your circle!</p>
+          </div>
+        ) : (
+          messages.map((msg, index) => {
+            const isOwn = msg.user_id === currentUser?.id;
+            const showAvatar = !isOwn && (index === 0 || messages[index - 1]?.user_id !== msg.user_id);
+            
+            return (
               <motion.div
                 key={msg.id}
-                initial={{ opacity: 0, x: msg.user_id === currentUser.id ? 50 : -50 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.05 }}
-                style={{
-                  display: 'flex',
-                  justifyContent: msg.user_id === currentUser.id ? 'flex-end' : 'flex-start',
-                  marginBottom: '16px'
-                }}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`message-row ${isOwn ? 'own' : 'other'}`}
               >
-                <div style={{ maxWidth: '70%' }}>
-                  {msg.user_id !== currentUser.id && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                      <div style={{
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '50%',
-                        background: `linear-gradient(135deg, #667eea 0%, #764ba2 100%)`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: 'white',
-                        fontSize: '14px',
-                        fontWeight: 'bold'
-                      }}>
-                        {msg.username?.[0]?.toUpperCase() || '?'}
-                      </div>
-                      <span style={{ fontSize: '12px', color: darkMode ? '#aaa' : '#6b7280' }}>
-                        {msg.username}
-                      </span>
-                    </div>
-                  )}
-                  
-                  <motion.div
-                    whileHover={{ scale: 1.02 }}
-                    className="message-bubble"
-                    style={{
-                      background: msg.user_id === currentUser.id 
-                        ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
-                        : darkMode ? '#16213e' : 'white',
-                      padding: '10px 16px',
-                      borderRadius: msg.user_id === currentUser.id 
-                        ? '20px 20px 4px 20px' 
-                        : '20px 20px 20px 4px',
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                      position: 'relative'
-                    }}
-                  >
-                    {msg.type === 'image' ? (
-                      <img 
-                        src={msg.image_url} 
-                        alt="Shared" 
-                        style={{ maxWidth: '200px', borderRadius: '12px', cursor: 'pointer' }}
-                        onClick={() => window.open(msg.image_url)}
-                      />
+                {!isOwn && showAvatar && (
+                  <div className="message-avatar">
+                    {msg.avatar ? (
+                      <img src={msg.avatar} alt={msg.username} />
                     ) : (
-                      <p style={{ margin: 0, color: msg.user_id === currentUser.id ? 'white' : (darkMode ? 'white' : 'black') }}>
-                        {msg.content}
-                        {msg.isEdited && <span style={{ fontSize: '10px', opacity: 0.6, marginLeft: '8px' }}>(edited)</span>}
-                      </p>
+                      <span>{msg.username?.[0]?.toUpperCase()}</span>
                     )}
+                  </div>
+                )}
+                <div className="message-wrapper">
+                  {!isOwn && showAvatar && (
+                    <div className="message-name">{msg.username}</div>
+                  )}
+                  <div className="message-bubble-wrapper">
+                    <div className={`message-bubble ${msg.type === 'image' ? 'image-message' : ''}`}>
+                      {msg.type === 'image' ? (
+                        <img 
+                          src={msg.image_url} 
+                          alt="Shared" 
+                          onClick={() => window.open(msg.image_url)}
+                        />
+                      ) : editingMessage === msg.id ? (
+                        <div className="edit-input">
+                          <input
+                            type="text"
+                            value={editContent}
+                            onChange={(e) => setEditContent(e.target.value)}
+                            onKeyPress={(e) => e.key === 'Enter' && saveEdit()}
+                            autoFocus
+                          />
+                          <button onClick={saveEdit}>Save</button>
+                          <button onClick={() => setEditingMessage(null)}>Cancel</button>
+                        </div>
+                      ) : (
+                        <>
+                          <p>{msg.content}</p>
+                          {msg.isEdited && <span className="edited-badge">edited</span>}
+                        </>
+                      )}
+                      
+                      {/* Reactions */}
+                      {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                        <div className="reactions">
+                          {Object.entries(msg.reactions).map(([emoji, users]) => (
+                            <span key={emoji} className="reaction">
+                              {emoji} {users.length}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     
-                    {/* Message Actions */}
-                    {msg.user_id === currentUser.id && (
-                      <div style={{ 
-                        position: 'absolute', 
-                        right: '8px', 
-                        bottom: '-20px', 
-                        display: 'flex', 
-                        gap: '8px',
-                        opacity: 0,
-                        transition: 'opacity 0.2s'
-                      }}
-                      className="message-actions"
-                      >
-                        <button
-                          onClick={() => {
-                            setEditingMessage(msg.id);
-                            setEditContent(msg.content);
-                          }}
-                          style={{ background: darkMode ? '#0f3460' : '#f3f4f6', border: 'none', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px' }}
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          onClick={() => deleteMessage(msg.id)}
-                          style={{ background: darkMode ? '#0f3460' : '#f3f4f6', border: 'none', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px' }}
-                        >
-                          🗑️
-                        </button>
+                    {/* Message Menu */}
+                    {isOwn && !editingMessage && (
+                      <div className="message-menu">
+                        <button onClick={() => addReaction(msg.id, '👍')}>👍</button>
+                        <button onClick={() => addReaction(msg.id, '❤️')}>❤️</button>
+                        <button onClick={() => addReaction(msg.id, '😂')}>😂</button>
+                        <button onClick={() => editMessage(msg.id)}><FiEdit2 /></button>
+                        <button onClick={() => deleteMessage(msg.id)}><FiTrash2 /></button>
                       </div>
                     )}
-                    
-                    {/* Add Reaction Button */}
-                    <button
-                      onClick={() => setSelectedMessageForReaction(selectedMessageForReaction === msg.id ? null : msg.id)}
-                      style={{ 
-                        position: 'absolute', 
-                        left: msg.user_id === currentUser.id ? 'auto' : '8px', 
-                        right: msg.user_id === currentUser.id ? '8px' : 'auto',
-                        bottom: '-20px',
-                        background: darkMode ? '#0f3460' : '#f3f4f6',
-                        border: 'none',
-                        borderRadius: '50%',
-                        width: '20px',
-                        height: '20px',
-                        fontSize: '10px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}
-                    >
-                      😊
-                    </button>
-                  </motion.div>
-                  
-                  {msg.reactions && Object.keys(msg.reactions).length > 0 && (
-                    <div style={{ display: 'flex', gap: '4px', marginTop: '4px', marginLeft: '12px' }}>
-                      {Object.entries(msg.reactions).map(([emoji, users]) => (
-                        <span key={emoji} style={{ fontSize: '12px', background: darkMode ? '#16213e' : '#f3f4f6', padding: '2px 6px', borderRadius: '12px' }}>
-                          {emoji} {users.length}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  
-                  <p style={{
-                    fontSize: '10px',
-                    margin: '4px 12px 0',
-                    color: darkMode ? '#aaa' : '#9ca3af',
-                    textAlign: msg.user_id === currentUser.id ? 'right' : 'left'
-                  }}>
+                  </div>
+                  <div className="message-time">
                     {formatTime(msg.sent_at)}
-                  </p>
+                    {isOwn && (
+                      <span className="message-status">
+                        <FiCheck />
+                      </span>
+                    )}
+                  </div>
                 </div>
               </motion.div>
-            ))
-          )}
-        </AnimatePresence>
+            );
+          })
+        )}
         <div ref={messagesEndRef} />
       </div>
       
-      {/* Emoji Picker Modal */}
-      <AnimatePresence>
-        {selectedMessageForReaction && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            style={{ 
-              position: 'fixed', 
-              top: 0, 
-              left: 0, 
-              right: 0, 
-              bottom: 0, 
-              background: 'rgba(0,0,0,0.5)', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center', 
-              zIndex: 1000 
-            }}
-            onClick={() => setSelectedMessageForReaction(null)}
-          >
-            <motion.div
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.9 }}
-              style={{ background: darkMode ? '#16213e' : 'white', borderRadius: '16px', padding: '20px' }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <EmojiPicker onEmojiClick={(emoji) => addReaction(selectedMessageForReaction, emoji.emoji)} />
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      
-      {/* Edit Message Modal */}
-      <AnimatePresence>
-        {editingMessage && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            style={{ 
-              position: 'fixed', 
-              top: 0, 
-              left: 0, 
-              right: 0, 
-              bottom: 0, 
-              background: 'rgba(0,0,0,0.5)', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center', 
-              zIndex: 1000 
-            }}
-          >
-            <motion.div
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.9 }}
-              style={{ background: darkMode ? '#16213e' : 'white', borderRadius: '16px', padding: '24px', width: '400px', color: darkMode ? 'white' : 'black' }}
-            >
-              <h3>Edit Message</h3>
-              <input
-                type="text"
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                style={{ width: '100%', padding: '8px', margin: '16px 0', borderRadius: '8px', border: `1px solid ${darkMode ? '#0f3460' : '#ddd'}`, background: darkMode ? '#0f3460' : 'white', color: darkMode ? 'white' : 'black' }}
-                autoFocus
-              />
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                <button onClick={() => setEditingMessage(null)} style={{ padding: '8px 16px', background: '#9ca3af', border: 'none', borderRadius: '8px', cursor: 'pointer', color: 'white' }}>Cancel</button>
-                <button onClick={() => editMessage(editingMessage)} style={{ padding: '8px 16px', background: '#3B82F6', border: 'none', borderRadius: '8px', cursor: 'pointer', color: 'white' }}>Save</button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      
       {/* Input Area */}
-      <form onSubmit={sendMessage} style={{ 
-        background: darkMode ? '#16213e' : 'white', 
-        borderTop: `1px solid ${darkMode ? '#0f3460' : '#e5e7eb'}`, 
-        padding: '16px 24px'
-      }}>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            style={{ 
-              background: 'none', 
-              border: 'none', 
-              fontSize: '24px', 
-              cursor: 'pointer',
-              padding: '8px'
-            }}
-          >
-            📷
-          </motion.button>
+      <form className="chat-input-area" onSubmit={sendMessage}>
+        <div className="input-tools">
+          <button type="button" onClick={() => fileInputRef.current?.click()}>
+            <FiImage />
+          </button>
+          <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)}>
+            <FiSmile />
+          </button>
           <input
             type="file"
             ref={fileInputRef}
@@ -568,66 +467,27 @@ function CircleChat({ token, circleId, onBack }) {
             accept="image/*"
             style={{ display: 'none' }}
           />
-          
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            type="button"
-            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            style={{ 
-              background: 'none', 
-              border: 'none', 
-              fontSize: '24px', 
-              cursor: 'pointer',
-              padding: '8px'
-            }}
-          >
-            😊
-          </motion.button>
-          
-          <input
-            type="text"
-            value={inputMessage}
-            onChange={(e) => {
-              setInputMessage(e.target.value);
-              handleTyping();
-            }}
-            placeholder="Type a message..."
-            style={{ 
-              flex: 1, 
-              padding: '12px', 
-              border: `1px solid ${darkMode ? '#0f3460' : '#e5e7eb'}`, 
-              borderRadius: '24px', 
-              outline: 'none',
-              background: darkMode ? '#0f3460' : '#f9fafb',
-              color: darkMode ? 'white' : 'black'
-            }}
-          />
-          
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            type="submit"
-            disabled={!inputMessage.trim() && !uploadingImage}
-            style={{
-              padding: '10px 24px',
-              background: (!inputMessage.trim() && !uploadingImage) ? '#9ca3af' : '#3B82F6',
-              color: 'white',
-              border: 'none',
-              borderRadius: '24px',
-              cursor: (!inputMessage.trim() && !uploadingImage) ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}
-          >
-            {uploadingImage ? (
-              <div className="animate-spin" style={{ width: '16px', height: '16px', border: '2px solid white', borderTopColor: 'transparent', borderRadius: '50%' }}></div>
-            ) : (
-              'Send'
-            )}
-          </motion.button>
         </div>
+        
+        <input
+          type="text"
+          value={inputMessage}
+          onChange={(e) => {
+            setInputMessage(e.target.value);
+            handleTyping();
+          }}
+          onKeyPress={handleKeyPress}
+          placeholder="Type a message..."
+          className="message-input"
+        />
+        
+        <button 
+          type="submit" 
+          disabled={!inputMessage.trim() && !uploadingImage}
+          className="send-btn"
+        >
+          {uploadingImage ? <div className="spinner small"></div> : <FiSend />}
+        </button>
         
         {/* Emoji Picker */}
         <AnimatePresence>
@@ -636,13 +496,52 @@ function CircleChat({ token, circleId, onBack }) {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
-              style={{ position: 'absolute', bottom: '80px', right: '20px', zIndex: 100 }}
+              className="emoji-picker-container"
             >
               <EmojiPicker onEmojiClick={onEmojiClick} />
             </motion.div>
           )}
         </AnimatePresence>
       </form>
+      
+      {/* Info Sidebar */}
+      <AnimatePresence>
+        {showInfo && (
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            className="info-sidebar"
+          >
+            <div className="info-header">
+              <h3>Circle Info</h3>
+              <button onClick={() => setShowInfo(false)}><FiX /></button>
+            </div>
+            <div className="info-content">
+              <div className="info-section">
+                <h4>Members ({members.length})</h4>
+                {members.map(member => (
+                  <div key={member.id} className="member-item">
+                    <div className="member-avatar">
+                      {member.avatar ? (
+                        <img src={member.avatar} alt={member.username} />
+                      ) : (
+                        <span>{member.username?.[0]?.toUpperCase()}</span>
+                      )}
+                    </div>
+                    <div className="member-info">
+                      <span className="member-name">{member.username}</span>
+                      <span className={`member-status ${onlineUsers.has(member.username) ? 'online' : ''}`}>
+                        {onlineUsers.has(member.username) ? 'Online' : 'Offline'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
