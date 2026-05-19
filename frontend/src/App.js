@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import toast, { Toaster } from 'react-hot-toast';
+import { Toaster } from 'react-hot-toast';
+
+// Remove this line if present:
+// import toast from 'react-hot-toast';  // DELETE THIS LINE
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));

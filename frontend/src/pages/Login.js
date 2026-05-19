@@ -1,3 +1,4 @@
+import API_URL from '../config';
 import React, { useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -14,7 +15,7 @@ function Login({ setToken }) {
     
     try {
       const endpoint = isLogin ? '/api/login' : '/api/signup';
-      const res = await axios.post(`http://localhost:5000${endpoint}`, { username, password });
+      const res = await axios.post(`${API_URL}${endpoint}`, { username, password });
       setToken(res.data.token);
       toast.success(isLogin ? 'Welcome back!' : 'Account created!');
     } catch (err) {
