@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import CircleChat from './CircleChat';
@@ -13,7 +13,7 @@ function Dashboard({ token, setToken }) {
   const [loading, setLoading] = useState(true);
   const [selectedCircle, setSelectedCircle] = useState(null);
   
-  const fetchCircles = async () => {
+  const fetchCircles = useCallback(async () => {
     try {
       const res = await axios.get(`${API_URL}/api/circles`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -24,11 +24,11 @@ function Dashboard({ token, setToken }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
   
   useEffect(() => {
     fetchCircles();
-  }, [token]);  // Add token to dependency array
+  }, [fetchCircles]);
   
   const createCircle = async () => {
     if (!circleName.trim()) {
