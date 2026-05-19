@@ -2,7 +2,7 @@ import React, { useState, useContext, useRef } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
-import { FiCamera, FiSave, FiX, FiLock, FiUser, FiEdit2, FiLogOut } from 'react-icons/fi';
+import { FiCamera, FiX, FiLock, FiUser, FiEdit2, FiLogOut } from 'react-icons/fi';
 import API_URL from '../config';
 import { AuthContext, DarkModeContext } from '../App';
 
@@ -14,7 +14,6 @@ function ProfileModal({ onClose }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [avatar, setAvatar] = useState(user?.avatar || null);
   const [avatarPreview, setAvatarPreview] = useState(user?.avatar || null);
   const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [isEditingPassword, setIsEditingPassword] = useState(false);
@@ -40,7 +39,6 @@ function ProfileModal({ onClose }) {
           Authorization: `Bearer ${token}`
         }
       });
-      setAvatar(res.data.url);
       setAvatarPreview(res.data.url);
       setUser({ ...user, avatar: res.data.url });
       localStorage.setItem('user', JSON.stringify({ ...user, avatar: res.data.url }));
