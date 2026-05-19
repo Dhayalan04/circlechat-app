@@ -6,7 +6,7 @@ import EmojiPicker from 'emoji-picker-react';
 import toast from 'react-hot-toast';
 import { 
   FiArrowLeft, FiSend, FiImage, FiSmile, 
-  FiEdit2, FiTrash2, FiCheck, FiInfo, FiX
+  FiEdit2, FiTrash2, FiCheck, FiInfo, FiX, FiUsers
 } from 'react-icons/fi';
 import API_URL from '../config';
 import { DarkModeContext, AuthContext } from '../App';
