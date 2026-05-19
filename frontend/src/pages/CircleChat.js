@@ -3,6 +3,7 @@ import axios from 'axios';
 import io from 'socket.io-client';
 import { motion, AnimatePresence } from 'framer-motion';
 import EmojiPicker from 'emoji-picker-react';
+import toast from 'react-hot-toast';
 import API_URL from '../config';
 import { DarkModeContext } from '../App';
 
@@ -130,7 +131,6 @@ function CircleChat({ token, circleId, onBack }) {
       setInputMessage('');
       setShowEmojiPicker(false);
       
-      // Stop typing indicator
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       socket.emit('typing', { circleId, isTyping: false });
     }
@@ -294,9 +294,9 @@ function CircleChat({ token, circleId, onBack }) {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div className="typing-dot" style={{ width: '6px', height: '6px', background: '#9ca3af', borderRadius: '50%' }}></div>
-              <div className="typing-dot" style={{ width: '6px', height: '6px', background: '#9ca3af', borderRadius: '50%' }}></div>
-              <div className="typing-dot" style={{ width: '6px', height: '6px', background: '#9ca3af', borderRadius: '50%' }}></div>
+              <div className="typing-dot" style={{ width: '6px', height: '6px', background: darkMode ? '#9ca3af' : '#6b7280', borderRadius: '50%' }}></div>
+              <div className="typing-dot" style={{ width: '6px', height: '6px', background: darkMode ? '#9ca3af' : '#6b7280', borderRadius: '50%' }}></div>
+              <div className="typing-dot" style={{ width: '6px', height: '6px', background: darkMode ? '#9ca3af' : '#6b7280', borderRadius: '50%' }}></div>
               <span style={{ fontSize: '12px', color: darkMode ? '#aaa' : '#6b7280' }}>
                 {Array.from(typingUsers).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
               </span>
@@ -531,7 +531,7 @@ function CircleChat({ token, circleId, onBack }) {
                 autoFocus
               />
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                <button onClick={() => setEditingMessage(null)} style={{ padding: '8px 16px', background: '#9ca3af', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+                <button onClick={() => setEditingMessage(null)} style={{ padding: '8px 16px', background: '#9ca3af', border: 'none', borderRadius: '8px', cursor: 'pointer', color: 'white' }}>Cancel</button>
                 <button onClick={() => editMessage(editingMessage)} style={{ padding: '8px 16px', background: '#3B82F6', border: 'none', borderRadius: '8px', cursor: 'pointer', color: 'white' }}>Save</button>
               </div>
             </motion.div>
