@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useContext } from 'react';
+import React, { useState, useEffect, useRef, useContext, useCallback } from 'react';
 import axios from 'axios';
 import io from 'socket.io-client';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -33,13 +33,13 @@ function CircleChat({ circleId, onBack }) {
   
   const currentUser = user;
   
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 100);
-  };
+  }, []);
   
-  const fetchCircleDetails = async () => {
+  const fetchCircleDetails = useCallback(async () => {
     try {
       const res = await axios.get(`${API_URL}/api/circles/${circleId}`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -48,9 +48,9 @@ function CircleChat({ circleId, onBack }) {
     } catch (err) {
       console.error('Failed to load circle');
     }
-  };
+  }, [circleId, token]);
   
-  const fetchMembers = async () => {
+  const fetchMembers = useCallback(async () => {
     try {
       const res = await axios.get(`${API_URL}/api/circles/${circleId}/members`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -59,9 +59,9 @@ function CircleChat({ circleId, onBack }) {
     } catch (err) {
       console.error('Failed to load members');
     }
-  };
+  }, [circleId, token]);
   
-  const fetchMessages = async () => {
+  const fetchMessages = useCallback(async () => {
     try {
       const res = await axios.get(`${API_URL}/api/messages/${circleId}`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -73,7 +73,7 @@ function CircleChat({ circleId, onBack }) {
       console.error('Failed to load messages');
       setLoading(false);
     }
-  };
+  }, [circleId, token, scrollToBottom]);
   
   useEffect(() => {
     fetchCircleDetails();
@@ -135,7 +135,7 @@ function CircleChat({ circleId, onBack }) {
       toast.success('Message edited');
     });
     
-    newSocket.on('reaction-added', ({ messageId, emoji, userId, username }) => {
+    newSocket.on('reaction-added', ({ messageId, emoji, username }) => {
       setMessages(prev => prev.map(msg => {
         if (msg.id === messageId) {
           const reactions = msg.reactions || {};
@@ -154,7 +154,7 @@ function CircleChat({ circleId, onBack }) {
     return () => {
       newSocket.close();
     };
-  }, [circleId, token]);
+  }, [circleId, token, currentUser?.id, currentUser?.username, fetchCircleDetails, fetchMembers, fetchMessages, scrollToBottom]);
   
   const sendMessage = async (e) => {
     e.preventDefault();

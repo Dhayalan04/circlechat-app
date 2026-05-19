@@ -10,7 +10,7 @@ import { DarkModeContext, AuthContext } from '../App';
 
 function Dashboard() {
   const { darkMode } = useContext(DarkModeContext);
-  const { token, setToken, user, setUser } = useContext(AuthContext);
+  const { token, user } = useContext(AuthContext);
   const [circles, setCircles] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
