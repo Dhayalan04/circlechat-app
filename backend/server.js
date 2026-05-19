@@ -10,16 +10,21 @@ require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
+
+// Allow all origins for production
 const io = socketio(server, {
-  cors: { origin: "http://localhost:3000", credentials: true }
+  cors: { 
+    origin: "*",
+    credentials: true 
+  }
 });
 
-app.use(cors());
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'my_secret_key';
 
-// Simple database setup
+// Database setup
 const db = new sqlite3.Database(path.join(__dirname, 'database.sqlite'));
 
 // Create tables
@@ -231,8 +236,8 @@ io.on('connection', (socket) => {
 });
 
 // Start server
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`\n🚀 Server running on http://localhost:${PORT}`);
-  console.log(`✅ Test: http://localhost:${PORT}/api/test\n`);
+  console.log(`\n🚀 Server running on port ${PORT}`);
+  console.log(`✅ API: /api/test`);
 });
