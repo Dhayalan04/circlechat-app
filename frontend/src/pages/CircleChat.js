@@ -5,9 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import EmojiPicker from 'emoji-picker-react';
 import toast from 'react-hot-toast';
 import { 
-  FiArrowLeft, FiSend, FiImage, FiSmile, FiMoreVertical, 
-  FiEdit2, FiTrash2, FiCheck, FiCheckCircle, FiClock,
-  FiUsers, FiInfo, FiPaperclip, FiX, FiDownload
+  FiArrowLeft, FiSend, FiImage, FiSmile, 
+  FiEdit2, FiTrash2, FiCheck, FiInfo, FiX
 } from 'react-icons/fi';
 import API_URL from '../config';
 import { DarkModeContext, AuthContext } from '../App';
@@ -24,7 +23,6 @@ function CircleChat({ circleId, onBack }) {
   const [typingUsers, setTypingUsers] = useState(new Set());
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [showMessageMenu, setShowMessageMenu] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
   const [editContent, setEditContent] = useState('');
   const [showInfo, setShowInfo] = useState(false);
@@ -41,10 +39,46 @@ function CircleChat({ circleId, onBack }) {
     }, 100);
   };
   
+  const fetchCircleDetails = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/circles/${circleId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setCircle(res.data);
+    } catch (err) {
+      console.error('Failed to load circle');
+    }
+  };
+  
+  const fetchMembers = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/circles/${circleId}/members`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMembers(res.data);
+    } catch (err) {
+      console.error('Failed to load members');
+    }
+  };
+  
+  const fetchMessages = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/messages/${circleId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMessages(res.data);
+      setLoading(false);
+      scrollToBottom();
+    } catch (err) {
+      console.error('Failed to load messages');
+      setLoading(false);
+    }
+  };
+  
   useEffect(() => {
     fetchCircleDetails();
-    fetchMessages();
     fetchMembers();
+    fetchMessages();
     
     const newSocket = io(API_URL, {
       auth: { token },
@@ -121,42 +155,6 @@ function CircleChat({ circleId, onBack }) {
       newSocket.close();
     };
   }, [circleId, token]);
-  
-  const fetchCircleDetails = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/circles/${circleId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setCircle(res.data);
-    } catch (err) {
-      console.error('Failed to load circle');
-    }
-  };
-  
-  const fetchMembers = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/circles/${circleId}/members`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setMembers(res.data);
-    } catch (err) {
-      console.error('Failed to load members');
-    }
-  };
-  
-  const fetchMessages = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/messages/${circleId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setMessages(res.data);
-      setLoading(false);
-      scrollToBottom();
-    } catch (err) {
-      console.error('Failed to load messages');
-      setLoading(false);
-    }
-  };
   
   const sendMessage = async (e) => {
     e.preventDefault();
@@ -243,7 +241,6 @@ function CircleChat({ circleId, onBack }) {
   const deleteMessage = (messageId) => {
     if (socket && window.confirm('Delete this message?')) {
       socket.emit('delete-message', { messageId, circleId });
-      setShowMessageMenu(null);
     }
   };
   
@@ -251,7 +248,6 @@ function CircleChat({ circleId, onBack }) {
     const message = messages.find(m => m.id === messageId);
     setEditingMessage(messageId);
     setEditContent(message.content);
-    setShowMessageMenu(null);
   };
   
   const saveEdit = () => {
