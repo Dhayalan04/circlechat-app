@@ -4,9 +4,10 @@ const socketio = require('socket.io');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const Database = require('better-sqlite3');
+const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
 const app = express();
@@ -25,63 +26,43 @@ app.use(express.json());
 const upload = multer({ dest: 'uploads/' });
 const JWT_SECRET = process.env.JWT_SECRET || 'my_secret_key';
 
-// Database setup
-const db = new Database(path.join(__dirname, 'database.sqlite'));
+// JSON file paths
+const DATA_DIR = path.join(__dirname, 'data');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const CIRCLES_FILE = path.join(DATA_DIR, 'circles.json');
+const MEMBERS_FILE = path.join(DATA_DIR, 'members.json');
+const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json');
 
-// Create tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE,
-    password_hash TEXT,
-    avatar_url TEXT
-  );
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
 
-  CREATE TABLE IF NOT EXISTS circles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    invite_code TEXT UNIQUE,
-    created_by INTEGER
-  );
+// Initialize JSON files if they don't exist
+function initFile(filePath, defaultData) {
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, JSON.stringify(defaultData, null, 2));
+  }
+}
 
-  CREATE TABLE IF NOT EXISTS circle_members (
-    user_id INTEGER,
-    circle_id INTEGER
-  );
-
-  CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    circle_id INTEGER,
-    user_id INTEGER,
-    content TEXT,
-    type TEXT DEFAULT 'text',
-    image_url TEXT,
-    sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
-
-console.log('✅ Database ready');
+initFile(USERS_FILE, []);
+initFile(CIRCLES_FILE, []);
+initFile(MEMBERS_FILE, []);
+initFile(MESSAGES_FILE, []);
 
 // Helper functions
-function runQuery(sql, params = []) {
-  const stmt = db.prepare(sql);
-  const result = stmt.run(...params);
-  return { lastID: result.lastInsertRowid };
+function readData(filePath) {
+  const data = fs.readFileSync(filePath, 'utf8');
+  return JSON.parse(data);
 }
 
-function getQuery(sql, params = []) {
-  const stmt = db.prepare(sql);
-  return stmt.get(...params);
-}
-
-function allQuery(sql, params = []) {
-  const stmt = db.prepare(sql);
-  return stmt.all(...params);
+function writeData(filePath, data) {
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
 // Test route
 app.get('/api/test', (req, res) => {
-  res.json({ message: 'Backend is working!' });
+  res.json({ message: 'Backend is working with JSON storage!' });
 });
 
 // Signup
@@ -89,15 +70,26 @@ app.post('/api/signup', async (req, res) => {
   const { username, password } = req.body;
   
   try {
+    const users = readData(USERS_FILE);
+    const existingUser = users.find(u => u.username === username);
+    if (existingUser) {
+      return res.status(400).json({ error: 'Username exists' });
+    }
+    
     const hashedPassword = await bcrypt.hash(password, 10);
-    const result = runQuery(
-      'INSERT INTO users (username, password_hash) VALUES (?, ?)',
-      [username, hashedPassword]
-    );
-    const token = jwt.sign({ id: result.lastID, username }, JWT_SECRET);
-    res.json({ token, user: { id: result.lastID, username } });
+    const newUser = {
+      id: users.length + 1,
+      username,
+      password_hash: hashedPassword,
+      avatar_url: null
+    };
+    users.push(newUser);
+    writeData(USERS_FILE, users);
+    
+    const token = jwt.sign({ id: newUser.id, username }, JWT_SECRET);
+    res.json({ token, user: { id: newUser.id, username } });
   } catch (err) {
-    res.status(400).json({ error: 'Username exists' });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -106,7 +98,8 @@ app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   
   try {
-    const user = getQuery('SELECT * FROM users WHERE username = ?', [username]);
+    const users = readData(USERS_FILE);
+    const user = users.find(u => u.username === username);
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     
     const valid = await bcrypt.compare(password, user.password_hash);
@@ -135,129 +128,173 @@ function authenticateToken(req, res, next) {
 
 // Get user's circles
 app.get('/api/circles', authenticateToken, (req, res) => {
-  const circles = allQuery(`
-    SELECT c.*, (SELECT COUNT(*) FROM circle_members WHERE circle_id = c.id) as member_count
-    FROM circles c
-    JOIN circle_members cm ON c.id = cm.circle_id
-    WHERE cm.user_id = ?
-  `, [req.user.id]);
-  res.json(circles);
+  const members = readData(MEMBERS_FILE);
+  const circles = readData(CIRCLES_FILE);
+  
+  const userCircles = members
+    .filter(m => m.user_id === req.user.id)
+    .map(m => {
+      const circle = circles.find(c => c.id === m.circle_id);
+      const memberCount = members.filter(mem => mem.circle_id === circle.id).length;
+      return { ...circle, member_count: memberCount };
+    });
+  
+  res.json(userCircles);
 });
 
 // Get single circle details
 app.get('/api/circles/:circleId', authenticateToken, (req, res) => {
-  const { circleId } = req.params;
-  const circle = getQuery('SELECT * FROM circles WHERE id = ?', [circleId]);
+  const circles = readData(CIRCLES_FILE);
+  const circle = circles.find(c => c.id === parseInt(req.params.circleId));
   res.json(circle);
 });
 
 // Get circle members
 app.get('/api/circles/:circleId/members', authenticateToken, (req, res) => {
-  const { circleId } = req.params;
-  const members = allQuery(`
-    SELECT u.id, u.username, u.avatar_url as avatar 
-    FROM circle_members cm
-    JOIN users u ON cm.user_id = u.id
-    WHERE cm.circle_id = ?
-  `, [circleId]);
-  res.json(members);
+  const members = readData(MEMBERS_FILE);
+  const users = readData(USERS_FILE);
+  
+  const circleMembers = members
+    .filter(m => m.circle_id === parseInt(req.params.circleId))
+    .map(m => {
+      const user = users.find(u => u.id === m.user_id);
+      return { id: user.id, username: user.username, avatar: user.avatar_url };
+    });
+  
+  res.json(circleMembers);
 });
 
 // Create circle
 app.post('/api/circles', authenticateToken, (req, res) => {
   const { name } = req.body;
+  const circles = readData(CIRCLES_FILE);
+  const members = readData(MEMBERS_FILE);
+  
   const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+  const newCircle = {
+    id: circles.length + 1,
+    name,
+    invite_code: inviteCode,
+    created_by: req.user.id
+  };
+  circles.push(newCircle);
+  writeData(CIRCLES_FILE, circles);
   
-  const result = runQuery(
-    'INSERT INTO circles (name, invite_code, created_by) VALUES (?, ?, ?)',
-    [name, inviteCode, req.user.id]
-  );
+  // Add creator as member
+  members.push({ user_id: req.user.id, circle_id: newCircle.id });
+  writeData(MEMBERS_FILE, members);
   
-  runQuery('INSERT INTO circle_members (user_id, circle_id) VALUES (?, ?)', 
-    [req.user.id, result.lastID]);
-  
-  const newCircle = getQuery('SELECT * FROM circles WHERE id = ?', [result.lastID]);
   res.json(newCircle);
 });
 
 // Join circle
 app.post('/api/circles/join', authenticateToken, (req, res) => {
   const { inviteCode } = req.body;
-  const circle = getQuery('SELECT * FROM circles WHERE invite_code = ?', [inviteCode]);
+  const circles = readData(CIRCLES_FILE);
+  const members = readData(MEMBERS_FILE);
   
+  const circle = circles.find(c => c.invite_code === inviteCode);
   if (!circle) return res.status(404).json({ error: 'Circle not found' });
   
-  runQuery('INSERT OR IGNORE INTO circle_members (user_id, circle_id) VALUES (?, ?)',
-    [req.user.id, circle.id]);
+  const alreadyMember = members.some(m => m.user_id === req.user.id && m.circle_id === circle.id);
+  if (!alreadyMember) {
+    members.push({ user_id: req.user.id, circle_id: circle.id });
+    writeData(MEMBERS_FILE, members);
+  }
+  
   res.json(circle);
 });
 
 // Leave circle
 app.delete('/api/circles/:circleId/leave', authenticateToken, (req, res) => {
-  const { circleId } = req.params;
-  
-  runQuery(
-    'DELETE FROM circle_members WHERE user_id = ? AND circle_id = ?',
-    [req.user.id, circleId]
-  );
+  const members = readData(MEMBERS_FILE);
+  const filtered = members.filter(m => !(m.user_id === req.user.id && m.circle_id === parseInt(req.params.circleId)));
+  writeData(MEMBERS_FILE, filtered);
   res.json({ message: 'Left circle successfully' });
 });
 
 // Delete circle
 app.delete('/api/circles/:circleId', authenticateToken, (req, res) => {
-  const { circleId } = req.params;
+  const circles = readData(CIRCLES_FILE);
+  const members = readData(MEMBERS_FILE);
+  const messages = readData(MESSAGES_FILE);
   
-  const circle = getQuery('SELECT * FROM circles WHERE id = ?', [circleId]);
+  const circle = circles.find(c => c.id === parseInt(req.params.circleId));
   if (!circle) return res.status(404).json({ error: 'Circle not found' });
   if (circle.created_by !== req.user.id) {
     return res.status(403).json({ error: 'Only circle creator can delete' });
   }
   
-  runQuery('DELETE FROM circles WHERE id = ?', [circleId]);
+  // Delete circle
+  const filteredCircles = circles.filter(c => c.id !== parseInt(req.params.circleId));
+  writeData(CIRCLES_FILE, filteredCircles);
+  
+  // Delete members
+  const filteredMembers = members.filter(m => m.circle_id !== parseInt(req.params.circleId));
+  writeData(MEMBERS_FILE, filteredMembers);
+  
+  // Delete messages
+  const filteredMessages = messages.filter(m => m.circle_id !== parseInt(req.params.circleId));
+  writeData(MESSAGES_FILE, filteredMessages);
+  
   res.json({ message: 'Circle deleted successfully' });
 });
 
 // Get messages
 app.get('/api/messages/:circleId', authenticateToken, (req, res) => {
-  const messages = allQuery(`
-    SELECT m.*, u.username FROM messages m
-    JOIN users u ON m.user_id = u.id
-    WHERE m.circle_id = ?
-    ORDER BY m.sent_at ASC
-    LIMIT 100
-  `, [req.params.circleId]);
-  res.json(messages);
+  const messages = readData(MESSAGES_FILE);
+  const users = readData(USERS_FILE);
+  
+  const circleMessages = messages
+    .filter(m => m.circle_id === parseInt(req.params.circleId))
+    .map(m => {
+      const user = users.find(u => u.id === m.user_id);
+      return { ...m, username: user?.username };
+    });
+  
+  res.json(circleMessages);
 });
 
 // Update username
 app.put('/api/user/username', authenticateToken, (req, res) => {
   const { username } = req.body;
+  const users = readData(USERS_FILE);
   
-  try {
-    runQuery('UPDATE users SET username = ? WHERE id = ?', [username, req.user.id]);
-    res.json({ message: 'Username updated successfully' });
-  } catch (err) {
-    res.status(400).json({ error: 'Username already taken' });
+  const existingUser = users.find(u => u.username === username && u.id !== req.user.id);
+  if (existingUser) {
+    return res.status(400).json({ error: 'Username already taken' });
   }
+  
+  const userIndex = users.findIndex(u => u.id === req.user.id);
+  users[userIndex].username = username;
+  writeData(USERS_FILE, users);
+  
+  res.json({ message: 'Username updated successfully' });
 });
 
 // Update password
 app.put('/api/user/password', authenticateToken, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
+  const users = readData(USERS_FILE);
+  const user = users.find(u => u.id === req.user.id);
   
-  const user = getQuery('SELECT * FROM users WHERE id = ?', [req.user.id]);
   const valid = await bcrypt.compare(currentPassword, user.password_hash);
   if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
   
   const hashedPassword = await bcrypt.hash(newPassword, 10);
-  runQuery('UPDATE users SET password_hash = ? WHERE id = ?', [hashedPassword, req.user.id]);
+  user.password_hash = hashedPassword;
+  writeData(USERS_FILE, users);
+  
   res.json({ message: 'Password updated successfully' });
 });
 
 // Upload avatar
 app.post('/api/upload-avatar', authenticateToken, upload.single('avatar'), (req, res) => {
+  const users = readData(USERS_FILE);
+  const userIndex = users.findIndex(u => u.id === req.user.id);
   const avatarUrl = `https://ui-avatars.com/api/?name=${req.user.username}&background=667eea&color=fff`;
-  runQuery('UPDATE users SET avatar_url = ? WHERE id = ?', [avatarUrl, req.user.id]);
+  users[userIndex].avatar_url = avatarUrl;
+  writeData(USERS_FILE, users);
   res.json({ url: avatarUrl });
 });
 
@@ -306,33 +343,44 @@ io.on('connection', (socket) => {
     });
   });
   
-  socket.on('send-message', async (data) => {
+  socket.on('send-message', (data) => {
     const { circleId, content, type = 'text', imageUrl = null } = data;
+    const messages = readData(MESSAGES_FILE);
     
-    const result = runQuery(
-      'INSERT INTO messages (circle_id, user_id, content, type, image_url) VALUES (?, ?, ?, ?, ?)',
-      [circleId, socket.user.id, content, type, imageUrl]
-    );
-    
-    const message = {
-      id: result.lastID,
+    const newMessage = {
+      id: messages.length + 1,
       circle_id: circleId,
       user_id: socket.user.id,
       content,
       type,
       image_url: imageUrl,
-      username: socket.user.username,
       sent_at: new Date().toISOString()
+    };
+    messages.push(newMessage);
+    writeData(MESSAGES_FILE, messages);
+    
+    const message = {
+      ...newMessage,
+      username: socket.user.username
     };
     
     io.to(`circle:${circleId}`).emit('new-message', message);
   });
   
   socket.on('delete-message', ({ messageId, circleId }) => {
+    const messages = readData(MESSAGES_FILE);
+    const filtered = messages.filter(m => m.id !== messageId);
+    writeData(MESSAGES_FILE, filtered);
     io.to(`circle:${circleId}`).emit('message-deleted', { messageId });
   });
   
   socket.on('edit-message', ({ messageId, circleId, newContent }) => {
+    const messages = readData(MESSAGES_FILE);
+    const messageIndex = messages.findIndex(m => m.id === messageId);
+    if (messageIndex !== -1) {
+      messages[messageIndex].content = newContent;
+      writeData(MESSAGES_FILE, messages);
+    }
     io.to(`circle:${circleId}`).emit('message-edited', { messageId, newContent });
   });
   
@@ -350,4 +398,5 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`\n🚀 Server running on port ${PORT}`);
+  console.log(`✅ Using JSON file storage - no database needed!`);
 });
