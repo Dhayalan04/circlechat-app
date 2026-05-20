@@ -87,10 +87,16 @@ function writeData(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
-// Test route
+// ============================================
+// TEST ROUTE
+// ============================================
 app.get('/api/test', (req, res) => {
   res.json({ message: 'Backend is working with JSON storage!' });
 });
+
+// ============================================
+// AUTH ROUTES
+// ============================================
 
 // Signup
 app.post('/api/signup', async (req, res) => {
@@ -152,6 +158,96 @@ function authenticateToken(req, res, next) {
     next();
   });
 }
+
+// ============================================
+// USER PROFILE ROUTES
+// ============================================
+
+// Update username
+app.put('/api/user/username', authenticateToken, (req, res) => {
+  const { username } = req.body;
+  const users = readData(USERS_FILE);
+  
+  const existingUser = users.find(u => u.username === username && u.id !== req.user.id);
+  if (existingUser) {
+    return res.status(400).json({ error: 'Username already taken' });
+  }
+  
+  const userIndex = users.findIndex(u => u.id === req.user.id);
+  users[userIndex].username = username;
+  writeData(USERS_FILE, users);
+  
+  res.json({ message: 'Username updated successfully' });
+});
+
+// Update password
+app.put('/api/user/password', authenticateToken, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const users = readData(USERS_FILE);
+  const user = users.find(u => u.id === req.user.id);
+  
+  const valid = await bcrypt.compare(currentPassword, user.password_hash);
+  if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
+  
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
+  user.password_hash = hashedPassword;
+  writeData(USERS_FILE, users);
+  
+  res.json({ message: 'Password updated successfully' });
+});
+
+// Upload avatar
+app.post('/api/upload-avatar', authenticateToken, upload.single('avatar'), (req, res) => {
+  const users = readData(USERS_FILE);
+  const userIndex = users.findIndex(u => u.id === req.user.id);
+  
+  if (req.file) {
+    const avatarUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    users[userIndex].avatar_url = avatarUrl;
+    writeData(USERS_FILE, users);
+    res.json({ url: avatarUrl });
+  } else {
+    const avatarUrl = `https://ui-avatars.com/api/?name=${req.user.username}&background=667eea&color=fff`;
+    users[userIndex].avatar_url = avatarUrl;
+    writeData(USERS_FILE, users);
+    res.json({ url: avatarUrl });
+  }
+});
+
+// Delete account
+app.delete('/api/user/account', authenticateToken, async (req, res) => {
+  const users = readData(USERS_FILE);
+  const members = readData(MEMBERS_FILE);
+  const messages = readData(MESSAGES_FILE);
+  const circles = readData(CIRCLES_FILE);
+  
+  try {
+    // Delete user from users list
+    const filteredUsers = users.filter(u => u.id !== req.user.id);
+    writeData(USERS_FILE, filteredUsers);
+    
+    // Delete user from circle members
+    const filteredMembers = members.filter(m => m.user_id !== req.user.id);
+    writeData(MEMBERS_FILE, filteredMembers);
+    
+    // Delete user's messages
+    const filteredMessages = messages.filter(m => m.user_id !== req.user.id);
+    writeData(MESSAGES_FILE, filteredMessages);
+    
+    // Delete circles created by user
+    const filteredCircles = circles.filter(c => c.created_by !== req.user.id);
+    writeData(CIRCLES_FILE, filteredCircles);
+    
+    res.json({ message: 'Account deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting account:', err);
+    res.status(500).json({ error: 'Failed to delete account' });
+  }
+});
+
+// ============================================
+// CIRCLE ROUTES
+// ============================================
 
 // Get user's circles
 app.get('/api/circles', authenticateToken, (req, res) => {
@@ -252,17 +348,24 @@ app.delete('/api/circles/:circleId', authenticateToken, (req, res) => {
     return res.status(403).json({ error: 'Only circle creator can delete' });
   }
   
+  // Delete circle
   const filteredCircles = circles.filter(c => c.id !== parseInt(req.params.circleId));
   writeData(CIRCLES_FILE, filteredCircles);
   
+  // Delete members
   const filteredMembers = members.filter(m => m.circle_id !== parseInt(req.params.circleId));
   writeData(MEMBERS_FILE, filteredMembers);
   
+  // Delete messages
   const filteredMessages = messages.filter(m => m.circle_id !== parseInt(req.params.circleId));
   writeData(MESSAGES_FILE, filteredMessages);
   
   res.json({ message: 'Circle deleted successfully' });
 });
+
+// ============================================
+// MESSAGE ROUTES
+// ============================================
 
 // Get messages
 app.get('/api/messages/:circleId', authenticateToken, (req, res) => {
@@ -279,57 +382,6 @@ app.get('/api/messages/:circleId', authenticateToken, (req, res) => {
   res.json(circleMessages);
 });
 
-// Update username
-app.put('/api/user/username', authenticateToken, (req, res) => {
-  const { username } = req.body;
-  const users = readData(USERS_FILE);
-  
-  const existingUser = users.find(u => u.username === username && u.id !== req.user.id);
-  if (existingUser) {
-    return res.status(400).json({ error: 'Username already taken' });
-  }
-  
-  const userIndex = users.findIndex(u => u.id === req.user.id);
-  users[userIndex].username = username;
-  writeData(USERS_FILE, users);
-  
-  res.json({ message: 'Username updated successfully' });
-});
-
-// Update password
-app.put('/api/user/password', authenticateToken, async (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-  const users = readData(USERS_FILE);
-  const user = users.find(u => u.id === req.user.id);
-  
-  const valid = await bcrypt.compare(currentPassword, user.password_hash);
-  if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
-  
-  const hashedPassword = await bcrypt.hash(newPassword, 10);
-  user.password_hash = hashedPassword;
-  writeData(USERS_FILE, users);
-  
-  res.json({ message: 'Password updated successfully' });
-});
-
-// Upload avatar
-app.post('/api/upload-avatar', authenticateToken, upload.single('avatar'), (req, res) => {
-  const users = readData(USERS_FILE);
-  const userIndex = users.findIndex(u => u.id === req.user.id);
-  
-  if (req.file) {
-    const avatarUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
-    users[userIndex].avatar_url = avatarUrl;
-    writeData(USERS_FILE, users);
-    res.json({ url: avatarUrl });
-  } else {
-    const avatarUrl = `https://ui-avatars.com/api/?name=${req.user.username}&background=667eea&color=fff`;
-    users[userIndex].avatar_url = avatarUrl;
-    writeData(USERS_FILE, users);
-    res.json({ url: avatarUrl });
-  }
-});
-
 // Image upload for chat
 app.post('/api/upload', authenticateToken, upload.single('image'), (req, res) => {
   if (req.file) {
@@ -340,8 +392,10 @@ app.post('/api/upload', authenticateToken, upload.single('image'), (req, res) =>
   }
 });
 
-// Socket.io - Track online users properly
-const onlineUsersMap = new Map(); // userId -> { socketId, username, circleId }
+// ============================================
+// SOCKET.IO - REAL TIME
+// ============================================
+const onlineUsersMap = new Map();
 
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
@@ -444,9 +498,12 @@ io.on('connection', (socket) => {
   });
 });
 
-// Start server
+// ============================================
+// START SERVER
+// ============================================
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`\n🚀 Server running on port ${PORT}`);
   console.log(`✅ Using JSON file storage - no database needed!`);
+  console.log(`📡 WebSocket ready for real-time communication`);
 });
