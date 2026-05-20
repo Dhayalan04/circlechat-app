@@ -2,14 +2,14 @@ import React, { useState, useEffect, useCallback, useContext } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiLogOut, FiPlus, FiUsers, FiCopy, FiTrash2, FiSettings, FiX } from 'react-icons/fi';
+import { FiPlus, FiUsers, FiCopy, FiTrash2, FiLogOut, FiHome, FiUser, FiSettings, FiSun, FiMoon } from 'react-icons/fi';
 import CircleChat from './CircleChat';
 import ProfileModal from '../components/ProfileModal';
 import API_URL from '../config';
 import { DarkModeContext, AuthContext } from '../App';
 
 function Dashboard() {
-  const { darkMode } = useContext(DarkModeContext);
+  const { darkMode, setDarkMode } = useContext(DarkModeContext);
   const { token, user } = useContext(AuthContext);
   const [circles, setCircles] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -19,6 +19,7 @@ function Dashboard() {
   const [inviteCode, setInviteCode] = useState('');
   const [loading, setLoading] = useState(true);
   const [selectedCircle, setSelectedCircle] = useState(null);
+  const [activeTab, setActiveTab] = useState('chats');
   
   const fetchCircles = useCallback(async () => {
     try {
@@ -75,35 +76,8 @@ function Dashboard() {
     }
   };
   
-  const leaveCircle = async (circleId, circleName) => {
-    if (window.confirm(`Are you sure you want to leave "${circleName}"?`)) {
-      try {
-        await axios.delete(`${API_URL}/api/circles/${circleId}/leave`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        toast.success(`Left "${circleName}"`);
-        fetchCircles();
-      } catch (err) {
-        toast.error('Failed to leave circle');
-      }
-    }
-  };
-  
-  const deleteCircle = async (circleId, circleName) => {
-    if (window.confirm(`Delete "${circleName}"? This cannot be undone.`)) {
-      try {
-        await axios.delete(`${API_URL}/api/circles/${circleId}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        toast.success(`"${circleName}" deleted`);
-        fetchCircles();
-      } catch (err) {
-        toast.error('Failed to delete circle');
-      }
-    }
-  };
-  
-  const copyInviteCode = (code) => {
+  const copyInviteCode = (code, e) => {
+    e.stopPropagation();
     navigator.clipboard.writeText(code);
     toast.success('Invite code copied!');
   };
@@ -114,10 +88,11 @@ function Dashboard() {
   
   return (
     <div className={`dashboard-container ${darkMode ? 'dark' : ''}`}>
-      <aside className="sidebar">
+      {/* Desktop Sidebar */}
+      <div className="sidebar" style={{ display: window.innerWidth >= 768 ? 'flex' : 'none' }}>
         <div className="sidebar-header">
           <div className="logo">
-            <svg viewBox="0 0 24 24" fill="none" width="32" height="32">
+            <svg viewBox="0 0 24 24" fill="none" width="28" height="28">
               <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h4l4 4 4-4h4c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" fill="#0088cc"/>
               <circle cx="8" cy="10" r="2" fill="white"/>
               <circle cx="16" cy="10" r="2" fill="white"/>
@@ -143,9 +118,7 @@ function Dashboard() {
                 <div className="circle-avatar"><FiUsers /></div>
                 <div className="circle-info"><h4>{circle.name}</h4><span>{circle.member_count || 1} members</span></div>
                 <div className="circle-actions" onClick={(e) => e.stopPropagation()}>
-                  <button onClick={() => copyInviteCode(circle.invite_code)} title="Copy invite code"><FiCopy /></button>
-                  <button onClick={() => leaveCircle(circle.id, circle.name)} title="Leave circle"><FiLogOut /></button>
-                  {circle.created_by === user?.id && <button onClick={() => deleteCircle(circle.id, circle.name)} title="Delete circle"><FiTrash2 /></button>}
+                  <button onClick={(e) => copyInviteCode(circle.invite_code, e)} title="Copy invite code"><FiCopy /></button>
                 </div>
               </motion.div>
             ))
@@ -159,37 +132,93 @@ function Dashboard() {
             <FiSettings />
           </button>
         </div>
-      </aside>
+      </div>
       
-      <main className="dashboard-main">
-        <div className="welcome-section"><h1>Welcome back, {user?.username}!</h1><p>Select a circle to start messaging</p></div>
-        {circles.length > 0 && (
-          <div className="recent-circles">
-            <h2>Recent Circles</h2>
-            <div className="circles-grid">
-              {circles.slice(0, 4).map((circle) => (
-                <motion.div key={circle.id} whileHover={{ y: -5 }} className="circle-card" onClick={() => setSelectedCircle(circle)}>
-                  <div className="card-avatar"><FiUsers /></div>
-                  <h3>{circle.name}</h3>
-                  <p>{circle.member_count || 1} members</p>
-                  <span className="invite-code">{circle.invite_code}</span>
-                </motion.div>
-              ))}
+      {/* Mobile Main Content */}
+      <div className="main-content">
+        {/* Profile Header for Mobile */}
+        <div className="profile-header">
+          <div className="profile-info-header" onClick={() => setShowProfileModal(true)}>
+            <div className="profile-avatar-header">
+              {user?.avatar ? <img src={user.avatar} alt={user?.username} /> : <span>{user?.username?.[0]?.toUpperCase() || 'U'}</span>}
+            </div>
+            <div className="profile-text">
+              <h3>{user?.username}</h3>
+              <p>Online</p>
             </div>
           </div>
-        )}
-      </main>
+          <button className="settings-btn" onClick={() => setDarkMode(!darkMode)}>
+            {darkMode ? <FiSun /> : <FiMoon />}
+          </button>
+        </div>
+        
+        <div className="welcome-section">
+          <h1>Welcome back!</h1>
+          <p>Select a circle to start messaging</p>
+        </div>
+        
+        <div className="action-buttons">
+          <button onClick={() => setShowCreateModal(true)} className="action-btn primary"><FiPlus /> New Circle</button>
+          <button onClick={() => setShowJoinModal(true)} className="action-btn secondary"><FiUsers /> Join</button>
+        </div>
+        
+        <div className="circles-grid">
+          {loading ? (
+            <div className="skeleton-list"><div className="skeleton"></div><div className="skeleton"></div></div>
+          ) : circles.length === 0 ? (
+            <div className="empty-state"><p>No circles yet</p><span>Create or join a circle to start</span></div>
+          ) : (
+            circles.map((circle) => (
+              <motion.div
+                key={circle.id}
+                whileTap={{ scale: 0.98 }}
+                className="circle-card"
+                onClick={() => setSelectedCircle(circle)}
+              >
+                <div className="card-avatar"><FiUsers /></div>
+                <div className="card-info">
+                  <h3>{circle.name}</h3>
+                  <p>{circle.member_count || 1} members</p>
+                  <div className="invite-code">{circle.invite_code}</div>
+                </div>
+                <button onClick={(e) => copyInviteCode(circle.invite_code, e)} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer' }}>📋</button>
+              </motion.div>
+            ))
+          )}
+        </div>
+      </div>
       
+      {/* Mobile Bottom Navigation */}
+      <div className="bottom-nav">
+        <button className={`nav-item ${activeTab === 'chats' ? 'active' : ''}`} onClick={() => setActiveTab('chats')}>
+          <FiHome size={20} />
+          <span>Chats</span>
+        </button>
+        <button className={`nav-item ${activeTab === 'profile' ? 'active' : ''}`} onClick={() => setShowProfileModal(true)}>
+          <FiUser size={20} />
+          <span>Profile</span>
+        </button>
+      </div>
+      
+      {/* Modals */}
       <AnimatePresence>
-        {showCreateModal && <Modal onClose={() => setShowCreateModal(false)} title="Create New Circle" darkMode={darkMode}>
-          <input type="text" value={circleName} onChange={(e) => setCircleName(e.target.value)} placeholder="Circle name" autoFocus />
-          <div className="modal-actions"><button onClick={() => setShowCreateModal(false)} className="secondary">Cancel</button><button onClick={createCircle} className="primary">Create</button></div>
-        </Modal>}
-        {showJoinModal && <Modal onClose={() => setShowJoinModal(false)} title="Join Circle" darkMode={darkMode}>
-          <input type="text" value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase())} placeholder="Enter invite code" autoFocus />
-          <div className="modal-actions"><button onClick={() => setShowJoinModal(false)} className="secondary">Cancel</button><button onClick={joinCircle} className="primary">Join</button></div>
-        </Modal>}
-        {showProfileModal && <ProfileModal onClose={() => setShowProfileModal(false)} />}
+        {showCreateModal && (
+          <Modal onClose={() => setShowCreateModal(false)} title="Create New Circle" darkMode={darkMode}>
+            <input type="text" value={circleName} onChange={(e) => setCircleName(e.target.value)} placeholder="Circle name" autoFocus />
+            <div className="modal-actions"><button onClick={() => setShowCreateModal(false)} className="secondary">Cancel</button><button onClick={createCircle} className="primary">Create</button></div>
+          </Modal>
+        )}
+        
+        {showJoinModal && (
+          <Modal onClose={() => setShowJoinModal(false)} title="Join Circle" darkMode={darkMode}>
+            <input type="text" value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase())} placeholder="Enter invite code" autoFocus />
+            <div className="modal-actions"><button onClick={() => setShowJoinModal(false)} className="secondary">Cancel</button><button onClick={joinCircle} className="primary">Join</button></div>
+          </Modal>
+        )}
+        
+        {showProfileModal && (
+          <ProfileModal onClose={() => setShowProfileModal(false)} />
+        )}
       </AnimatePresence>
     </div>
   );
@@ -199,7 +228,7 @@ function Modal({ children, onClose, title, darkMode }) {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="modal-overlay" onClick={onClose}>
       <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className={`modal-content ${darkMode ? 'dark' : ''}`} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header"><h2>{title}</h2><button onClick={onClose}><FiX /></button></div>
+        <div className="modal-header"><h2>{title}</h2><button onClick={onClose}>✕</button></div>
         <div className="modal-body">{children}</div>
       </motion.div>
     </motion.div>
