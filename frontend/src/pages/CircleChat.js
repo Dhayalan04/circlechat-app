@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useContext, useCallback } from 'react';
 import axios from 'axios';
 import io from 'socket.io-client';
-import { motion, AnimatePresence } from 'framer-motion';
 import EmojiPicker from 'emoji-picker-react';
 import toast from 'react-hot-toast';
 import { 
