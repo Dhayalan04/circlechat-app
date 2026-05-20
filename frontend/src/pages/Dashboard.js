@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useContext } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiPlus, FiUsers, FiCopy, FiTrash2, FiLogOut, FiHome, FiUser, FiSettings, FiSun, FiMoon } from 'react-icons/fi';
+import { FiPlus, FiUsers, FiCopy, FiHome, FiUser, FiSettings, FiSun, FiMoon } from 'react-icons/fi';
 import CircleChat from './CircleChat';
 import ProfileModal from '../components/ProfileModal';
 import API_URL from '../config';

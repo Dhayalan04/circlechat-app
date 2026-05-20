@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useContext } from 'react';
+import React, { useState, useEffect, useRef, useContext, useCallback } from 'react';
 import axios from 'axios';
 import io from 'socket.io-client';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -19,7 +19,7 @@ function CircleChat({ circleId, onBack }) {
   const [inputMessage, setInputMessage] = useState('');
   const [circle, setCircle] = useState(null);
   const [members, setMembers] = useState([]);
-  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [onlineCount, setOnlineCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [typingUsers, setTypingUsers] = useState(new Set());
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -31,11 +31,47 @@ function CircleChat({ circleId, onBack }) {
   const typingTimeoutRef = useRef(null);
   const fileInputRef = useRef(null);
   
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 100);
-  };
+  }, []);
+  
+  const fetchCircleDetails = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/circles/${circleId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setCircle(res.data);
+    } catch (err) {
+      console.error('Failed to load circle');
+    }
+  }, [circleId, token]);
+  
+  const fetchMembers = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/circles/${circleId}/members`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMembers(res.data);
+    } catch (err) {
+      console.error('Failed to load members');
+    }
+  }, [circleId, token]);
+  
+  const fetchMessages = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/messages/${circleId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMessages(res.data);
+      setLoading(false);
+      scrollToBottom();
+    } catch (err) {
+      console.error('Failed to load messages');
+      setLoading(false);
+    }
+  }, [circleId, token, scrollToBottom]);
   
   useEffect(() => {
     fetchCircleDetails();
@@ -54,7 +90,8 @@ function CircleChat({ circleId, onBack }) {
     });
     
     newSocket.on('online-users', (users) => {
-      setOnlineUsers(users);
+      console.log('Online users:', users);
+      setOnlineCount(users.length);
     });
     
     newSocket.on('new-message', (message) => {
@@ -107,43 +144,7 @@ function CircleChat({ circleId, onBack }) {
     return () => {
       newSocket.close();
     };
-  }, [circleId, token]);
-  
-  const fetchCircleDetails = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/circles/${circleId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setCircle(res.data);
-    } catch (err) {
-      console.error('Failed to load circle');
-    }
-  };
-  
-  const fetchMembers = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/circles/${circleId}/members`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setMembers(res.data);
-    } catch (err) {
-      console.error('Failed to load members');
-    }
-  };
-  
-  const fetchMessages = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/messages/${circleId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setMessages(res.data);
-      setLoading(false);
-      scrollToBottom();
-    } catch (err) {
-      console.error('Failed to load messages');
-      setLoading(false);
-    }
-  };
+  }, [circleId, token, user?.id, fetchCircleDetails, fetchMembers, fetchMessages, scrollToBottom]);
   
   const sendMessage = async (e) => {
     e.preventDefault();
@@ -189,13 +190,7 @@ function CircleChat({ circleId, onBack }) {
       return;
     }
     
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('Image must be less than 5MB');
-      return;
-    }
-    
     setUploadingImage(true);
-    
     const formData = new FormData();
     formData.append('image', file);
     
@@ -263,13 +258,6 @@ function CircleChat({ circleId, onBack }) {
   
   const formatTime = (dateString) => {
     const date = new Date(dateString);
-    const now = new Date();
-    const diff = now - date;
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    
-    if (days > 0) {
-      return `${days}d ago`;
-    }
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
   
@@ -281,7 +269,6 @@ function CircleChat({ circleId, onBack }) {
   if (loading) {
     return (
       <div className={`chat-loading ${darkMode ? 'dark' : ''}`}>
-        <div className="skeleton"></div>
         <div className="skeleton"></div>
         <div className="skeleton"></div>
       </div>
@@ -303,7 +290,7 @@ function CircleChat({ circleId, onBack }) {
             <h3>{circle?.name}</h3>
             <div className="member-status">
               <span className="online-dot"></span>
-              <span>{onlineUsers.length} online • {members.length} members</span>
+              <span>{onlineCount} online • {members.length} members</span>
             </div>
           </div>
         </div>
@@ -313,21 +300,14 @@ function CircleChat({ circleId, onBack }) {
       </div>
       
       {/* Typing Indicator */}
-      <AnimatePresence>
-        {typingUsers.size > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="typing-indicator"
-          >
-            <div className="typing-dots">
-              <span></span><span></span><span></span>
-            </div>
-            <span>{Array.from(typingUsers).join(', ')} is typing...</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {typingUsers.size > 0 && (
+        <div className="typing-indicator">
+          <div className="typing-dots">
+            <span></span><span></span><span></span>
+          </div>
+          <span>{Array.from(typingUsers).join(', ')} is typing...</span>
+        </div>
+      )}
       
       {/* Messages */}
       <div className="messages-area">
@@ -335,74 +315,45 @@ function CircleChat({ circleId, onBack }) {
           <div className="empty-chat">
             <div className="empty-icon">💬</div>
             <h3>No messages yet</h3>
-            <p>Start the conversation with your circle!</p>
+            <p>Start the conversation!</p>
           </div>
         ) : (
-          messages.map((msg, index) => {
+          messages.map((msg) => {
             const isOwn = msg.user_id === user?.id;
-            const showAvatar = !isOwn && (index === 0 || messages[index - 1]?.user_id !== msg.user_id);
             
             return (
-              <motion.div
-                key={msg.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={`message-row ${isOwn ? 'own' : 'other'}`}
-              >
-                {!isOwn && showAvatar && (
+              <div key={msg.id} className={`message-row ${isOwn ? 'own' : 'other'}`}>
+                {!isOwn && (
                   <div className="message-avatar">
-                    {msg.avatar ? (
-                      <img src={msg.avatar} alt={msg.username} />
-                    ) : (
-                      <span>{msg.username?.[0]?.toUpperCase()}</span>
-                    )}
+                    <span>{msg.username?.[0]?.toUpperCase()}</span>
                   </div>
                 )}
                 <div className="message-wrapper">
-                  {!isOwn && showAvatar && (
-                    <div className="message-name">{msg.username}</div>
-                  )}
+                  {!isOwn && <div className="message-name">{msg.username}</div>}
                   <div className="message-bubble-wrapper">
                     <div className={`message-bubble ${msg.type === 'image' ? 'image-message' : ''}`}>
                       {msg.type === 'image' ? (
-                        <img 
-                          src={msg.image_url} 
-                          alt="Shared" 
-                          onClick={() => window.open(msg.image_url)}
-                          style={{ maxWidth: '200px', borderRadius: '12px', cursor: 'pointer' }}
-                        />
+                        <img src={msg.image_url} alt="Shared" onClick={() => window.open(msg.image_url)} />
                       ) : editingMessage === msg.id ? (
                         <div className="edit-input">
-                          <input
-                            type="text"
-                            value={editContent}
-                            onChange={(e) => setEditContent(e.target.value)}
-                            onKeyPress={(e) => e.key === 'Enter' && saveEdit()}
-                            autoFocus
-                          />
+                          <input type="text" value={editContent} onChange={(e) => setEditContent(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && saveEdit()} autoFocus />
                           <button onClick={saveEdit}>Save</button>
                           <button onClick={() => setEditingMessage(null)}>Cancel</button>
                         </div>
                       ) : (
-                        <>
-                          <p>{msg.content}</p>
-                          {msg.isEdited && <span className="edited-badge">edited</span>}
-                        </>
+                        <p>{msg.content}{msg.isEdited && <span className="edited-badge"> edited</span>}</p>
                       )}
                       
                       {/* Reactions */}
                       {msg.reactions && Object.keys(msg.reactions).length > 0 && (
                         <div className="reactions">
                           {Object.entries(msg.reactions).map(([emoji, users]) => (
-                            <span key={emoji} className="reaction">
-                              {emoji} {users.length}
-                            </span>
+                            <span key={emoji} className="reaction">{emoji} {users.length}</span>
                           ))}
                         </div>
                       )}
                     </div>
                     
-                    {/* Message Menu */}
                     {isOwn && !editingMessage && (
                       <div className="message-menu">
                         <button onClick={() => addReaction(msg.id, '👍')}>👍</button>
@@ -415,14 +366,10 @@ function CircleChat({ circleId, onBack }) {
                   </div>
                   <div className="message-time">
                     {formatTime(msg.sent_at)}
-                    {isOwn && (
-                      <span className="message-status">
-                        <FiCheck />
-                      </span>
-                    )}
+                    {isOwn && <FiCheck />}
                   </div>
                 </div>
-              </motion.div>
+              </div>
             );
           })
         )}
@@ -432,94 +379,44 @@ function CircleChat({ circleId, onBack }) {
       {/* Input Area */}
       <form className="chat-input-area" onSubmit={sendMessage}>
         <div className="input-tools">
-          <button type="button" onClick={() => fileInputRef.current?.click()}>
-            <FiImage />
-          </button>
-          <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)}>
-            <FiSmile />
-          </button>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleImageUpload}
-            accept="image/*"
-            style={{ display: 'none' }}
-          />
+          <button type="button" onClick={() => fileInputRef.current?.click()}><FiImage /></button>
+          <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)}><FiSmile /></button>
+          <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" style={{ display: 'none' }} />
         </div>
+        <input type="text" value={inputMessage} onChange={(e) => { setInputMessage(e.target.value); handleTyping(); }} onKeyPress={handleKeyPress} placeholder="Type a message..." className="message-input" />
+        <button type="submit" disabled={!inputMessage.trim() && !uploadingImage} className="send-btn">{uploadingImage ? <div className="spinner small"></div> : <FiSend />}</button>
         
-        <input
-          type="text"
-          value={inputMessage}
-          onChange={(e) => {
-            setInputMessage(e.target.value);
-            handleTyping();
-          }}
-          onKeyPress={handleKeyPress}
-          placeholder="Type a message..."
-          className="message-input"
-        />
-        
-        <button 
-          type="submit" 
-          disabled={!inputMessage.trim() && !uploadingImage}
-          className="send-btn"
-        >
-          {uploadingImage ? <div className="spinner small"></div> : <FiSend />}
-        </button>
-        
-        {/* Emoji Picker */}
-        <AnimatePresence>
-          {showEmojiPicker && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              className="emoji-picker-container"
-            >
-              <EmojiPicker onEmojiClick={onEmojiClick} />
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {showEmojiPicker && (
+          <div className="emoji-picker-container">
+            <EmojiPicker onEmojiClick={onEmojiClick} />
+          </div>
+        )}
       </form>
       
       {/* Info Sidebar */}
-      <AnimatePresence>
-        {showInfo && (
-          <motion.div
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            className="info-sidebar"
-          >
-            <div className="info-header">
-              <h3>Circle Info</h3>
-              <button onClick={() => setShowInfo(false)}><FiX /></button>
-            </div>
-            <div className="info-content">
-              <div className="info-section">
-                <h4>Members ({members.length})</h4>
-                {members.map(member => (
-                  <div key={member.id} className="member-item">
-                    <div className="member-avatar">
-                      {member.avatar ? (
-                        <img src={member.avatar} alt={member.username} />
-                      ) : (
-                        <span>{member.username?.[0]?.toUpperCase()}</span>
-                      )}
-                    </div>
-                    <div className="member-info">
-                      <span className="member-name">{member.username}</span>
-                      <span className={`member-status ${onlineUsers.includes(member.username) ? 'online' : ''}`}>
-                        {onlineUsers.includes(member.username) ? 'Online' : 'Offline'}
-                      </span>
-                    </div>
+      {showInfo && (
+        <div className="info-sidebar">
+          <div className="info-header">
+            <h3>Circle Info</h3>
+            <button onClick={() => setShowInfo(false)}><FiX /></button>
+          </div>
+          <div className="info-content">
+            <div className="info-section">
+              <h4>Members ({members.length})</h4>
+              {members.map(member => (
+                <div key={member.id} className="member-item">
+                  <div className="member-avatar">
+                    <span>{member.username?.[0]?.toUpperCase()}</span>
                   </div>
-                ))}
-              </div>
+                  <div className="member-info">
+                    <span className="member-name">{member.username}</span>
+                  </div>
+                </div>
+              ))}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
