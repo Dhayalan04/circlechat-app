@@ -4,7 +4,7 @@ const socketio = require('socket.io');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const sqlite3 = require('sqlite3').verbose();
+const Database = require('better-sqlite3');
 const path = require('path');
 const multer = require('multer');
 require('dotenv').config();
@@ -26,30 +26,30 @@ const upload = multer({ dest: 'uploads/' });
 const JWT_SECRET = process.env.JWT_SECRET || 'my_secret_key';
 
 // Database setup
-const db = new sqlite3.Database(path.join(__dirname, 'database.sqlite'));
+const db = new Database(path.join(__dirname, 'database.sqlite'));
 
 // Create tables
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS users (
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE,
     password_hash TEXT,
     avatar_url TEXT
-  )`);
-  
-  db.run(`CREATE TABLE IF NOT EXISTS circles (
+  );
+
+  CREATE TABLE IF NOT EXISTS circles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
     invite_code TEXT UNIQUE,
     created_by INTEGER
-  )`);
-  
-  db.run(`CREATE TABLE IF NOT EXISTS circle_members (
+  );
+
+  CREATE TABLE IF NOT EXISTS circle_members (
     user_id INTEGER,
     circle_id INTEGER
-  )`);
-  
-  db.run(`CREATE TABLE IF NOT EXISTS messages (
+  );
+
+  CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     circle_id INTEGER,
     user_id INTEGER,
@@ -57,37 +57,26 @@ db.serialize(() => {
     type TEXT DEFAULT 'text',
     image_url TEXT,
     sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-  
-  console.log('✅ Database ready');
-});
+  );
+`);
+
+console.log('✅ Database ready');
 
 // Helper functions
 function runQuery(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function(err) {
-      if (err) reject(err);
-      else resolve({ lastID: this.lastID });
-    });
-  });
+  const stmt = db.prepare(sql);
+  const result = stmt.run(...params);
+  return { lastID: result.lastInsertRowid };
 }
 
 function getQuery(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
-  });
+  const stmt = db.prepare(sql);
+  return stmt.get(...params);
 }
 
 function allQuery(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
+  const stmt = db.prepare(sql);
+  return stmt.all(...params);
 }
 
 // Test route
@@ -101,7 +90,7 @@ app.post('/api/signup', async (req, res) => {
   
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-    const result = await runQuery(
+    const result = runQuery(
       'INSERT INTO users (username, password_hash) VALUES (?, ?)',
       [username, hashedPassword]
     );
@@ -117,7 +106,7 @@ app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   
   try {
-    const user = await getQuery('SELECT * FROM users WHERE username = ?', [username]);
+    const user = getQuery('SELECT * FROM users WHERE username = ?', [username]);
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     
     const valid = await bcrypt.compare(password, user.password_hash);
@@ -145,8 +134,8 @@ function authenticateToken(req, res, next) {
 }
 
 // Get user's circles
-app.get('/api/circles', authenticateToken, async (req, res) => {
-  const circles = await allQuery(`
+app.get('/api/circles', authenticateToken, (req, res) => {
+  const circles = allQuery(`
     SELECT c.*, (SELECT COUNT(*) FROM circle_members WHERE circle_id = c.id) as member_count
     FROM circles c
     JOIN circle_members cm ON c.id = cm.circle_id
@@ -156,16 +145,16 @@ app.get('/api/circles', authenticateToken, async (req, res) => {
 });
 
 // Get single circle details
-app.get('/api/circles/:circleId', authenticateToken, async (req, res) => {
+app.get('/api/circles/:circleId', authenticateToken, (req, res) => {
   const { circleId } = req.params;
-  const circle = await getQuery('SELECT * FROM circles WHERE id = ?', [circleId]);
+  const circle = getQuery('SELECT * FROM circles WHERE id = ?', [circleId]);
   res.json(circle);
 });
 
 // Get circle members
-app.get('/api/circles/:circleId/members', authenticateToken, async (req, res) => {
+app.get('/api/circles/:circleId/members', authenticateToken, (req, res) => {
   const { circleId } = req.params;
-  const members = await allQuery(`
+  const members = allQuery(`
     SELECT u.id, u.username, u.avatar_url as avatar 
     FROM circle_members cm
     JOIN users u ON cm.user_id = u.id
@@ -175,62 +164,62 @@ app.get('/api/circles/:circleId/members', authenticateToken, async (req, res) =>
 });
 
 // Create circle
-app.post('/api/circles', authenticateToken, async (req, res) => {
+app.post('/api/circles', authenticateToken, (req, res) => {
   const { name } = req.body;
   const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
   
-  const result = await runQuery(
+  const result = runQuery(
     'INSERT INTO circles (name, invite_code, created_by) VALUES (?, ?, ?)',
     [name, inviteCode, req.user.id]
   );
   
-  await runQuery('INSERT INTO circle_members (user_id, circle_id) VALUES (?, ?)', 
+  runQuery('INSERT INTO circle_members (user_id, circle_id) VALUES (?, ?)', 
     [req.user.id, result.lastID]);
   
-  const newCircle = await getQuery('SELECT * FROM circles WHERE id = ?', [result.lastID]);
+  const newCircle = getQuery('SELECT * FROM circles WHERE id = ?', [result.lastID]);
   res.json(newCircle);
 });
 
 // Join circle
-app.post('/api/circles/join', authenticateToken, async (req, res) => {
+app.post('/api/circles/join', authenticateToken, (req, res) => {
   const { inviteCode } = req.body;
-  const circle = await getQuery('SELECT * FROM circles WHERE invite_code = ?', [inviteCode]);
+  const circle = getQuery('SELECT * FROM circles WHERE invite_code = ?', [inviteCode]);
   
   if (!circle) return res.status(404).json({ error: 'Circle not found' });
   
-  await runQuery('INSERT OR IGNORE INTO circle_members (user_id, circle_id) VALUES (?, ?)',
+  runQuery('INSERT OR IGNORE INTO circle_members (user_id, circle_id) VALUES (?, ?)',
     [req.user.id, circle.id]);
   res.json(circle);
 });
 
 // Leave circle
-app.delete('/api/circles/:circleId/leave', authenticateToken, async (req, res) => {
+app.delete('/api/circles/:circleId/leave', authenticateToken, (req, res) => {
   const { circleId } = req.params;
   
-  await runQuery(
+  runQuery(
     'DELETE FROM circle_members WHERE user_id = ? AND circle_id = ?',
     [req.user.id, circleId]
   );
   res.json({ message: 'Left circle successfully' });
 });
 
-// Delete circle (only creator)
-app.delete('/api/circles/:circleId', authenticateToken, async (req, res) => {
+// Delete circle
+app.delete('/api/circles/:circleId', authenticateToken, (req, res) => {
   const { circleId } = req.params;
   
-  const circle = await getQuery('SELECT * FROM circles WHERE id = ?', [circleId]);
+  const circle = getQuery('SELECT * FROM circles WHERE id = ?', [circleId]);
   if (!circle) return res.status(404).json({ error: 'Circle not found' });
   if (circle.created_by !== req.user.id) {
     return res.status(403).json({ error: 'Only circle creator can delete' });
   }
   
-  await runQuery('DELETE FROM circles WHERE id = ?', [circleId]);
+  runQuery('DELETE FROM circles WHERE id = ?', [circleId]);
   res.json({ message: 'Circle deleted successfully' });
 });
 
 // Get messages
-app.get('/api/messages/:circleId', authenticateToken, async (req, res) => {
-  const messages = await allQuery(`
+app.get('/api/messages/:circleId', authenticateToken, (req, res) => {
+  const messages = allQuery(`
     SELECT m.*, u.username FROM messages m
     JOIN users u ON m.user_id = u.id
     WHERE m.circle_id = ?
@@ -241,11 +230,11 @@ app.get('/api/messages/:circleId', authenticateToken, async (req, res) => {
 });
 
 // Update username
-app.put('/api/user/username', authenticateToken, async (req, res) => {
+app.put('/api/user/username', authenticateToken, (req, res) => {
   const { username } = req.body;
   
   try {
-    await runQuery('UPDATE users SET username = ? WHERE id = ?', [username, req.user.id]);
+    runQuery('UPDATE users SET username = ? WHERE id = ?', [username, req.user.id]);
     res.json({ message: 'Username updated successfully' });
   } catch (err) {
     res.status(400).json({ error: 'Username already taken' });
@@ -256,24 +245,24 @@ app.put('/api/user/username', authenticateToken, async (req, res) => {
 app.put('/api/user/password', authenticateToken, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   
-  const user = await getQuery('SELECT * FROM users WHERE id = ?', [req.user.id]);
+  const user = getQuery('SELECT * FROM users WHERE id = ?', [req.user.id]);
   const valid = await bcrypt.compare(currentPassword, user.password_hash);
   if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
   
   const hashedPassword = await bcrypt.hash(newPassword, 10);
-  await runQuery('UPDATE users SET password_hash = ? WHERE id = ?', [hashedPassword, req.user.id]);
+  runQuery('UPDATE users SET password_hash = ? WHERE id = ?', [hashedPassword, req.user.id]);
   res.json({ message: 'Password updated successfully' });
 });
 
 // Upload avatar
-app.post('/api/upload-avatar', authenticateToken, upload.single('avatar'), async (req, res) => {
+app.post('/api/upload-avatar', authenticateToken, upload.single('avatar'), (req, res) => {
   const avatarUrl = `https://ui-avatars.com/api/?name=${req.user.username}&background=667eea&color=fff`;
-  await runQuery('UPDATE users SET avatar_url = ? WHERE id = ?', [avatarUrl, req.user.id]);
+  runQuery('UPDATE users SET avatar_url = ? WHERE id = ?', [avatarUrl, req.user.id]);
   res.json({ url: avatarUrl });
 });
 
 // Image upload for chat
-app.post('/api/upload', authenticateToken, upload.single('image'), async (req, res) => {
+app.post('/api/upload', authenticateToken, upload.single('image'), (req, res) => {
   const imageUrl = `https://picsum.photos/300/200?random=${Date.now()}`;
   res.json({ url: imageUrl });
 });
@@ -300,8 +289,8 @@ io.on('connection', (socket) => {
     console.log(`${socket.user.username} joined circle ${circleId}`);
   });
   
-  socket.on('user-online', ({ circleId, userId, username }) => {
-    onlineUsers.set(socket.user.id, { username, circleId });
+  socket.on('user-online', ({ circleId }) => {
+    onlineUsers.set(socket.user.id, { username: socket.user.username, circleId });
     io.to(`circle:${circleId}`).emit('user-status', { 
       userId: socket.user.id, 
       username: socket.user.username, 
@@ -320,7 +309,7 @@ io.on('connection', (socket) => {
   socket.on('send-message', async (data) => {
     const { circleId, content, type = 'text', imageUrl = null } = data;
     
-    const result = await runQuery(
+    const result = runQuery(
       'INSERT INTO messages (circle_id, user_id, content, type, image_url) VALUES (?, ?, ?, ?, ?)',
       [circleId, socket.user.id, content, type, imageUrl]
     );
