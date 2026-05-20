@@ -22,8 +22,35 @@ const io = socketio(server, {
 
 app.use(cors({ origin: "*" }));
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-const upload = multer({ dest: 'uploads/' });
+// Configure multer for image upload
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueName = Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname);
+    cb(null, uniqueName);
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only images allowed'));
+    }
+  }
+});
+
 const JWT_SECRET = process.env.JWT_SECRET || 'my_secret_key';
 
 // JSON file paths
@@ -225,15 +252,12 @@ app.delete('/api/circles/:circleId', authenticateToken, (req, res) => {
     return res.status(403).json({ error: 'Only circle creator can delete' });
   }
   
-  // Delete circle
   const filteredCircles = circles.filter(c => c.id !== parseInt(req.params.circleId));
   writeData(CIRCLES_FILE, filteredCircles);
   
-  // Delete members
   const filteredMembers = members.filter(m => m.circle_id !== parseInt(req.params.circleId));
   writeData(MEMBERS_FILE, filteredMembers);
   
-  // Delete messages
   const filteredMessages = messages.filter(m => m.circle_id !== parseInt(req.params.circleId));
   writeData(MESSAGES_FILE, filteredMessages);
   
@@ -292,20 +316,32 @@ app.put('/api/user/password', authenticateToken, async (req, res) => {
 app.post('/api/upload-avatar', authenticateToken, upload.single('avatar'), (req, res) => {
   const users = readData(USERS_FILE);
   const userIndex = users.findIndex(u => u.id === req.user.id);
-  const avatarUrl = `https://ui-avatars.com/api/?name=${req.user.username}&background=667eea&color=fff`;
-  users[userIndex].avatar_url = avatarUrl;
-  writeData(USERS_FILE, users);
-  res.json({ url: avatarUrl });
+  
+  if (req.file) {
+    const avatarUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    users[userIndex].avatar_url = avatarUrl;
+    writeData(USERS_FILE, users);
+    res.json({ url: avatarUrl });
+  } else {
+    const avatarUrl = `https://ui-avatars.com/api/?name=${req.user.username}&background=667eea&color=fff`;
+    users[userIndex].avatar_url = avatarUrl;
+    writeData(USERS_FILE, users);
+    res.json({ url: avatarUrl });
+  }
 });
 
 // Image upload for chat
 app.post('/api/upload', authenticateToken, upload.single('image'), (req, res) => {
-  const imageUrl = `https://picsum.photos/300/200?random=${Date.now()}`;
-  res.json({ url: imageUrl });
+  if (req.file) {
+    const imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    res.json({ url: imageUrl });
+  } else {
+    res.status(400).json({ error: 'No file uploaded' });
+  }
 });
 
-// Socket.io
-const onlineUsers = new Map();
+// Socket.io - Track online users properly
+const onlineUsersMap = new Map(); // userId -> { socketId, username, circleId }
 
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
@@ -323,16 +359,21 @@ io.on('connection', (socket) => {
   
   socket.on('join-circle', (circleId) => {
     socket.join(`circle:${circleId}`);
-    console.log(`${socket.user.username} joined circle ${circleId}`);
-  });
-  
-  socket.on('user-online', ({ circleId }) => {
-    onlineUsers.set(socket.user.id, { username: socket.user.username, circleId });
-    io.to(`circle:${circleId}`).emit('user-status', { 
-      userId: socket.user.id, 
-      username: socket.user.username, 
-      status: 'online' 
+    socket.circleId = circleId;
+    
+    // Update online users map
+    onlineUsersMap.set(socket.user.id, {
+      socketId: socket.id,
+      username: socket.user.username,
+      circleId: circleId
     });
+    
+    // Broadcast online status to circle members
+    const onlineUsersList = Array.from(onlineUsersMap.values())
+      .filter(u => u.circleId === circleId)
+      .map(u => u.username);
+    
+    io.to(`circle:${circleId}`).emit('online-users', onlineUsersList);
   });
   
   socket.on('typing', ({ circleId, isTyping }) => {
@@ -389,7 +430,16 @@ io.on('connection', (socket) => {
   });
   
   socket.on('disconnect', () => {
-    onlineUsers.delete(socket.user.id);
+    const userInfo = onlineUsersMap.get(socket.user.id);
+    if (userInfo) {
+      onlineUsersMap.delete(socket.user.id);
+      if (userInfo.circleId) {
+        const onlineUsersList = Array.from(onlineUsersMap.values())
+          .filter(u => u.circleId === userInfo.circleId)
+          .map(u => u.username);
+        io.to(`circle:${userInfo.circleId}`).emit('online-users', onlineUsersList);
+      }
+    }
     console.log(`❌ ${socket.user.username} disconnected`);
   });
 });

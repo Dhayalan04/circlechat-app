@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useContext, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useContext } from 'react';
 import axios from 'axios';
 import io from 'socket.io-client';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -19,9 +19,9 @@ function CircleChat({ circleId, onBack }) {
   const [inputMessage, setInputMessage] = useState('');
   const [circle, setCircle] = useState(null);
   const [members, setMembers] = useState([]);
+  const [onlineUsers, setOnlineUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [typingUsers, setTypingUsers] = useState(new Set());
-  const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [editingMessage, setEditingMessage] = useState(null);
   const [editContent, setEditContent] = useState('');
@@ -31,49 +31,11 @@ function CircleChat({ circleId, onBack }) {
   const typingTimeoutRef = useRef(null);
   const fileInputRef = useRef(null);
   
-  const currentUser = user;
-  
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = () => {
     setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 100);
-  }, []);
-  
-  const fetchCircleDetails = useCallback(async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/circles/${circleId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setCircle(res.data);
-    } catch (err) {
-      console.error('Failed to load circle');
-    }
-  }, [circleId, token]);
-  
-  const fetchMembers = useCallback(async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/circles/${circleId}/members`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setMembers(res.data);
-    } catch (err) {
-      console.error('Failed to load members');
-    }
-  }, [circleId, token]);
-  
-  const fetchMessages = useCallback(async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/messages/${circleId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setMessages(res.data);
-      setLoading(false);
-      scrollToBottom();
-    } catch (err) {
-      console.error('Failed to load messages');
-      setLoading(false);
-    }
-  }, [circleId, token, scrollToBottom]);
+  };
   
   useEffect(() => {
     fetchCircleDetails();
@@ -89,7 +51,10 @@ function CircleChat({ circleId, onBack }) {
     newSocket.on('connect', () => {
       console.log('Connected to chat');
       newSocket.emit('join-circle', circleId);
-      newSocket.emit('user-online', { circleId, userId: currentUser?.id, username: currentUser?.username });
+    });
+    
+    newSocket.on('online-users', (users) => {
+      setOnlineUsers(users);
     });
     
     newSocket.on('new-message', (message) => {
@@ -98,7 +63,7 @@ function CircleChat({ circleId, onBack }) {
     });
     
     newSocket.on('user-typing', ({ userId, username, isTyping }) => {
-      if (userId !== currentUser?.id) {
+      if (userId !== user?.id) {
         setTypingUsers(prev => {
           const newSet = new Set(prev);
           if (isTyping) {
@@ -109,18 +74,6 @@ function CircleChat({ circleId, onBack }) {
           return newSet;
         });
       }
-    });
-    
-    newSocket.on('user-status', ({ userId, username, status }) => {
-      setOnlineUsers(prev => {
-        const newSet = new Set(prev);
-        if (status === 'online') {
-          newSet.add(username);
-        } else {
-          newSet.delete(username);
-        }
-        return newSet;
-      });
     });
     
     newSocket.on('message-deleted', ({ messageId }) => {
@@ -154,7 +107,43 @@ function CircleChat({ circleId, onBack }) {
     return () => {
       newSocket.close();
     };
-  }, [circleId, token, currentUser?.id, currentUser?.username, fetchCircleDetails, fetchMembers, fetchMessages, scrollToBottom]);
+  }, [circleId, token]);
+  
+  const fetchCircleDetails = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/circles/${circleId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setCircle(res.data);
+    } catch (err) {
+      console.error('Failed to load circle');
+    }
+  };
+  
+  const fetchMembers = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/circles/${circleId}/members`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMembers(res.data);
+    } catch (err) {
+      console.error('Failed to load members');
+    }
+  };
+  
+  const fetchMessages = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/messages/${circleId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMessages(res.data);
+      setLoading(false);
+      scrollToBottom();
+    } catch (err) {
+      console.error('Failed to load messages');
+      setLoading(false);
+    }
+  };
   
   const sendMessage = async (e) => {
     e.preventDefault();
@@ -163,9 +152,7 @@ function CircleChat({ circleId, onBack }) {
     if (socket) {
       socket.emit('send-message', {
         circleId: parseInt(circleId),
-        content: inputMessage,
-        userId: currentUser?.id,
-        username: currentUser?.username
+        content: inputMessage
       });
       setInputMessage('');
       setShowEmojiPicker(false);
@@ -225,9 +212,7 @@ function CircleChat({ circleId, onBack }) {
           circleId: parseInt(circleId),
           content: '📷 Image',
           type: 'image',
-          imageUrl: res.data.url,
-          userId: currentUser?.id,
-          username: currentUser?.username
+          imageUrl: res.data.url
         });
       }
       toast.success('Image sent!');
@@ -235,6 +220,7 @@ function CircleChat({ circleId, onBack }) {
       toast.error('Failed to upload image');
     } finally {
       setUploadingImage(false);
+      e.target.value = '';
     }
   };
   
@@ -270,8 +256,7 @@ function CircleChat({ circleId, onBack }) {
         messageId, 
         circleId, 
         emoji, 
-        userId: currentUser?.id,
-        username: currentUser?.username
+        username: user?.username
       });
     }
   };
@@ -291,10 +276,6 @@ function CircleChat({ circleId, onBack }) {
   const onEmojiClick = (emojiData) => {
     setInputMessage(prev => prev + emojiData.emoji);
     setShowEmojiPicker(false);
-  };
-  
-  const getOnlineCount = () => {
-    return members.filter(m => onlineUsers.has(m.username)).length;
   };
   
   if (loading) {
@@ -322,7 +303,7 @@ function CircleChat({ circleId, onBack }) {
             <h3>{circle?.name}</h3>
             <div className="member-status">
               <span className="online-dot"></span>
-              <span>{getOnlineCount()} online • {members.length} members</span>
+              <span>{onlineUsers.length} online • {members.length} members</span>
             </div>
           </div>
         </div>
@@ -358,7 +339,7 @@ function CircleChat({ circleId, onBack }) {
           </div>
         ) : (
           messages.map((msg, index) => {
-            const isOwn = msg.user_id === currentUser?.id;
+            const isOwn = msg.user_id === user?.id;
             const showAvatar = !isOwn && (index === 0 || messages[index - 1]?.user_id !== msg.user_id);
             
             return (
@@ -388,6 +369,7 @@ function CircleChat({ circleId, onBack }) {
                           src={msg.image_url} 
                           alt="Shared" 
                           onClick={() => window.open(msg.image_url)}
+                          style={{ maxWidth: '200px', borderRadius: '12px', cursor: 'pointer' }}
                         />
                       ) : editingMessage === msg.id ? (
                         <div className="edit-input">
@@ -527,8 +509,8 @@ function CircleChat({ circleId, onBack }) {
                     </div>
                     <div className="member-info">
                       <span className="member-name">{member.username}</span>
-                      <span className={`member-status ${onlineUsers.has(member.username) ? 'online' : ''}`}>
-                        {onlineUsers.has(member.username) ? 'Online' : 'Offline'}
+                      <span className={`member-status ${onlineUsers.includes(member.username) ? 'online' : ''}`}>
+                        {onlineUsers.includes(member.username) ? 'Online' : 'Offline'}
                       </span>
                     </div>
                   </div>
