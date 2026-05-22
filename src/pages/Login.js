@@ -2,6 +2,16 @@ import React, { useState, useContext } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { AuthContext } from '../App';
+import { auth } from '../firebase';
+import { 
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult
+} from 'firebase/auth';
 import API_URL from '../config';
 
 function Login() {
@@ -14,20 +24,92 @@ function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    
+
+    const email = `${username}@circlechat-app04.firebaseapp.com`;
+
     try {
-      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/signup';
-      const res = await axios.post(`${API_URL}${endpoint}`, { username, password });
-      setToken(res.data.token);
-      setUser(res.data.user);
-      localStorage.setItem('user', JSON.stringify(res.data.user));
+      let userCredential;
+      if (isLogin) {
+        userCredential = await signInWithEmailAndPassword(auth, email, password);
+      } else {
+        userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        await updateProfile(userCredential.user, { displayName: username });
+      }
+
+      const token = await userCredential.user.getIdToken();
+      const userProfile = {
+        id: userCredential.user.uid,
+        username: userCredential.user.displayName || username,
+      };
+
+      if (!isLogin) {
+        await axios.post(
+          `${API_URL}/api/user/username`,
+          { username },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }
+
+      setToken(token);
+      setUser(userProfile);
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userProfile));
       toast.success(isLogin ? 'Welcome back!' : 'Account created!');
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Something went wrong');
+      toast.error(err.message || err.response?.data?.error || 'Something went wrong');
     } finally {
       setLoading(false);
     }
   };
+
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    const provider = new GoogleAuthProvider();
+    try {
+      // Try popup first
+      const result = await signInWithPopup(auth, provider);
+      const fbUser = result.user;
+      const token = await fbUser.getIdToken();
+      const userProfile = { id: fbUser.uid, username: fbUser.displayName || fbUser.email };
+      setToken(token);
+      setUser(userProfile);
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userProfile));
+      toast.success('Signed in with Google');
+    } catch (err) {
+      // If popup blocked, fallback to redirect
+      try {
+        await signInWithRedirect(auth, provider);
+      } catch (redirectErr) {
+        toast.error(redirectErr.message || 'Google sign-in failed');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle redirect result (for signInWithRedirect flow)
+  React.useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result && result.user && mounted) {
+          const fbUser = result.user;
+          const token = await fbUser.getIdToken();
+          const userProfile = { id: fbUser.uid, username: fbUser.displayName || fbUser.email };
+          setToken(token);
+          setUser(userProfile);
+          localStorage.setItem('token', token);
+          localStorage.setItem('user', JSON.stringify(userProfile));
+          toast.success('Signed in with Google');
+        }
+      } catch (e) {
+        // ignore no-redirect-result
+      }
+    })();
+    return () => { mounted = false; };
+  }, [setToken, setUser]);
   
   return (
     <div style={{ 
@@ -125,6 +207,30 @@ function Login() {
               {loading ? 'Loading...' : (isLogin ? 'Sign In' : 'Sign Up')}
             </button>
           </form>
+
+          <div style={{ marginTop: '16px' }}>
+            <button
+              onClick={handleGoogleSignIn}
+              disabled={loading}
+              style={{
+                width: '100%',
+                padding: '12px',
+                background: '#fff',
+                color: '#333',
+                border: '1px solid #e0e0e0',
+                borderRadius: '12px',
+                fontSize: '15px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px'
+              }}
+            >
+              <img src="/google-logo.png" alt="Google" style={{ width: '18px', height: '18px' }} />
+              {loading ? 'Loading...' : 'Sign in with Google'}
+            </button>
+          </div>
           
           <div style={{ textAlign: 'center', marginTop: '24px' }}>
             <button

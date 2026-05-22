@@ -1,16 +1,14 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import './styles/globals.css';
 
-// Create Contexts here directly to avoid import issues
 export const AuthContext = React.createContext();
 export const DarkModeContext = React.createContext();
 
-// Lazy load pages
 const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const CircleChat = lazy(() => import('./pages/CircleChat'));
+const MeetingRoom = lazy(() => import('./pages/MeetingRoom'));
 
 const LoadingSpinner = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
@@ -21,8 +19,8 @@ const LoadingSpinner = () => (
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(() => {
-    const savedUser = localStorage.getItem('user');
-    return savedUser ? JSON.parse(savedUser) : null;
+    const saved = localStorage.getItem('user');
+    return saved ? JSON.parse(saved) : null;
   });
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
@@ -42,13 +40,10 @@ function App() {
     localStorage.setItem('darkMode', JSON.stringify(darkMode));
   }, [darkMode]);
 
-  const authValue = { token, setToken, user, setUser };
-  const darkModeValue = { darkMode, setDarkMode };
-
   if (!token) {
     return (
-      <AuthContext.Provider value={authValue}>
-        <DarkModeContext.Provider value={darkModeValue}>
+      <AuthContext.Provider value={{ setToken, setUser }}>
+        <DarkModeContext.Provider value={{ darkMode, setDarkMode }}>
           <Toaster position="top-right" />
           <Suspense fallback={<LoadingSpinner />}>
             <Login />
@@ -59,14 +54,15 @@ function App() {
   }
 
   return (
-    <AuthContext.Provider value={authValue}>
-      <DarkModeContext.Provider value={darkModeValue}>
+    <AuthContext.Provider value={{ token, setToken, user, setUser }}>
+      <DarkModeContext.Provider value={{ darkMode, setDarkMode }}>
         <BrowserRouter>
           <Toaster position="top-right" />
           <Suspense fallback={<LoadingSpinner />}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/circle/:circleId" element={<CircleChat />} />
+              <Route path="/circle/:circleId/meeting" element={<MeetingRoom />} />
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
           </Suspense>

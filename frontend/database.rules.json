@@ -1,0 +1,59 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid",
+        ".validate": "newData.hasChildren(['username', 'email', 'createdAt'])",
+        "circles": {
+          "$circleId": {
+            ".read": true,
+            ".write": "$uid === auth.uid"
+          }
+        }
+      }
+    },
+    "circles": {
+      "$circleId": {
+        ".read": "root.child('circles').child($circleId).child('members').child(auth.uid).exists()",
+        ".write": "root.child('circles').child($circleId).child('ownerId').val() === auth.uid",
+        ".validate": "newData.hasChildren(['name', 'ownerId', 'members'])",
+        "messages": {
+          "$messageId": {
+            ".read": "root.child('circles').child($circleId).child('members').child(auth.uid).exists()",
+            ".write": "newData.child('userId').val() === auth.uid",
+            ".validate": "newData.hasChildren(['content', 'userId', 'timestamp'])"
+          }
+        },
+        "members": {
+          "$uid": {
+            ".read": "root.child('circles').child($circleId).child('members').child(auth.uid).exists()",
+            ".write": "root.child('circles').child($circleId).child('ownerId').val() === auth.uid",
+            ".validate": "newData.isBoolean()"
+          }
+        },
+        "meetingNotes": {
+          "$noteId": {
+            ".read": "root.child('circles').child($circleId).child('members').child(auth.uid).exists()",
+            ".write": "newData.child('createdBy').val() === auth.uid",
+            ".validate": "newData.hasChildren(['content', 'createdBy', 'timestamp'])"
+          }
+        }
+      }
+    },
+    "meetingRooms": {
+      "$roomId": {
+        ".read": "root.child('meetingRooms').child($roomId).child('participants').child(auth.uid).exists()",
+        ".write": "newData.child('createdBy').val() === auth.uid",
+        "participants": {
+          "$uid": {
+            ".read": "root.child('meetingRooms').child($roomId).child('participants').child(auth.uid).exists()",
+            ".write": "$uid === auth.uid"
+          }
+        }
+      }
+    },
+    ".read": false,
+    ".write": false
+  }
+}

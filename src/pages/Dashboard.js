@@ -2,7 +2,9 @@ import React, { useState, useEffect, useCallback, useContext } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiPlus, FiUsers, FiCopy, FiHome, FiUser, FiSettings, FiSun, FiMoon } from 'react-icons/fi';
+import { FiPlus, FiUsers, FiCopy, FiHome, FiUser, FiSettings, FiSun, FiMoon, FiLogOut } from 'react-icons/fi';
+import { signOut } from 'firebase/auth';
+import { auth } from '../firebase';
 import CircleChat from './CircleChat';
 import ProfileModal from '../components/ProfileModal';
 import API_URL from '../config';
@@ -10,7 +12,7 @@ import { DarkModeContext, AuthContext } from '../App';
 
 function Dashboard() {
   const { darkMode, setDarkMode } = useContext(DarkModeContext);
-  const { token, user } = useContext(AuthContext);
+  const { token, user, setToken, setUser } = useContext(AuthContext);
   const [circles, setCircles] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
@@ -33,7 +35,21 @@ function Dashboard() {
       setLoading(false);
     }
   }, [token]);
-  
+
+  const handleLogout = async () => {
+    if (window.confirm('Are you sure you want to sign out?')) {
+      try {
+        await signOut(auth);
+      } catch (err) {
+        console.warn('Firebase sign out failed:', err.message);
+      }
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      setToken(null);
+      setUser(null);
+    }
+  };
+
   useEffect(() => {
     fetchCircles();
   }, [fetchCircles]);
@@ -147,9 +163,14 @@ function Dashboard() {
               <p>Online</p>
             </div>
           </div>
-          <button className="settings-btn" onClick={() => setDarkMode(!darkMode)}>
-            {darkMode ? <FiSun /> : <FiMoon />}
-          </button>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <button className="settings-btn" onClick={() => setDarkMode(!darkMode)}>
+              {darkMode ? <FiSun /> : <FiMoon />}
+            </button>
+            <button className="settings-btn" onClick={handleLogout} title="Sign Out">
+              <FiLogOut />
+            </button>
+          </div>
         </div>
         
         <div className="welcome-section">

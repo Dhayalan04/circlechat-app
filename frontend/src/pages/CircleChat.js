@@ -1,421 +1,226 @@
-import React, { useState, useEffect, useRef, useContext, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useContext } from 'react';
 import axios from 'axios';
 import io from 'socket.io-client';
-import EmojiPicker from 'emoji-picker-react';
+import { useParams, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { 
-  FiArrowLeft, FiSend, FiImage, FiSmile, 
-  FiEdit2, FiTrash2, FiCheck, FiInfo, FiX, FiUsers
-} from 'react-icons/fi';
-import API_URL from '../config';
-import { DarkModeContext, AuthContext } from '../App';
+import { FiArrowLeft, FiSend, FiVideo } from 'react-icons/fi';
+import { AuthContext, DarkModeContext } from '../App';
+import AIAssistant from '../components/AIAssistant';
+import TypingIndicator from '../components/TypingIndicator';
+
+const API_URL = 'https://circlechat-backend.onrender.com';
 
 function CircleChat({ circleId, onBack }) {
-  const { darkMode } = useContext(DarkModeContext);
   const { token, user } = useContext(AuthContext);
+  const { darkMode } = useContext(DarkModeContext);
+  const params = useParams();
+  const navigate = useNavigate();
+  const actualCircleId = circleId || params.circleId;
   const [socket, setSocket] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [participants, setParticipants] = useState([]);
+  const [typingUsers, setTypingUsers] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
   const [circle, setCircle] = useState(null);
-  const [members, setMembers] = useState([]);
-  const [onlineCount, setOnlineCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [typingUsers, setTypingUsers] = useState(new Set());
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [editingMessage, setEditingMessage] = useState(null);
-  const [editContent, setEditContent] = useState('');
-  const [showInfo, setShowInfo] = useState(false);
-  const [uploadingImage, setUploadingImage] = useState(false);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
-  const fileInputRef = useRef(null);
-  
-  const scrollToBottom = useCallback(() => {
+
+  useEffect(() => {
+    if (!actualCircleId) return;
+
+    fetchCircleDetails();
+    fetchMessages();
+
+    const newSocket = io(API_URL, { auth: { token } });
+    setSocket(newSocket);
+
+    newSocket.on('connect', () => {
+      newSocket.emit('join-circle', actualCircleId);
+    });
+
+    newSocket.on('circle-participants', (data) => {
+      setParticipants(data.participants || []);
+    });
+
+    newSocket.on('user-typing', ({ userId, username }) => {
+      if (userId === user?.id) return;
+      setTypingUsers((prev) => {
+        const next = [...prev];
+        if (!next.includes(username)) next.push(username);
+        return next;
+      });
+    });
+
+    newSocket.on('user-stop-typing', ({ userId, username }) => {
+      if (userId === user?.id) return;
+      setTypingUsers((prev) => prev.filter((name) => name !== username));
+    });
+
+    newSocket.on('new-message', (message) => {
+      setMessages((prev) => [...prev, message]);
+      scrollToBottom();
+    });
+
+    return () => {
+      newSocket.emit('leave-circle', actualCircleId);
+      newSocket.close();
+    };
+  }, [actualCircleId, token, user?.id]);
+
+  const scrollToBottom = () => {
     setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 100);
-  }, []);
-  
-  const fetchCircleDetails = useCallback(async () => {
+  };
+
+  const fetchCircleDetails = async () => {
     try {
-      const res = await axios.get(`${API_URL}/api/circles/${circleId}`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const res = await axios.get(`${API_URL}/api/circles/${actualCircleId}`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
       setCircle(res.data);
     } catch (err) {
-      console.error('Failed to load circle');
+      console.error(err);
     }
-  }, [circleId, token]);
-  
-  const fetchMembers = useCallback(async () => {
+  };
+
+  const fetchMessages = async () => {
     try {
-      const res = await axios.get(`${API_URL}/api/circles/${circleId}/members`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setMembers(res.data);
-    } catch (err) {
-      console.error('Failed to load members');
-    }
-  }, [circleId, token]);
-  
-  const fetchMessages = useCallback(async () => {
-    try {
-      const res = await axios.get(`${API_URL}/api/messages/${circleId}`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const res = await axios.get(`${API_URL}/api/messages/${actualCircleId}`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
       setMessages(res.data);
       setLoading(false);
       scrollToBottom();
     } catch (err) {
-      console.error('Failed to load messages');
+      console.error(err);
       setLoading(false);
     }
-  }, [circleId, token, scrollToBottom]);
-  
-  useEffect(() => {
-    fetchCircleDetails();
-    fetchMembers();
-    fetchMessages();
-    
-    const newSocket = io(API_URL, {
-      auth: { token },
-      transports: ['websocket']
-    });
-    setSocket(newSocket);
-    
-    newSocket.on('connect', () => {
-      console.log('Connected to chat');
-      newSocket.emit('join-circle', circleId);
-    });
-    
-    newSocket.on('online-users', (users) => {
-      console.log('Online users:', users);
-      setOnlineCount(users.length);
-    });
-    
-    newSocket.on('new-message', (message) => {
-      setMessages(prev => [...prev, message]);
-      scrollToBottom();
-    });
-    
-    newSocket.on('user-typing', ({ userId, username, isTyping }) => {
-      if (userId !== user?.id) {
-        setTypingUsers(prev => {
-          const newSet = new Set(prev);
-          if (isTyping) {
-            newSet.add(username);
-          } else {
-            newSet.delete(username);
-          }
-          return newSet;
-        });
-      }
-    });
-    
-    newSocket.on('message-deleted', ({ messageId }) => {
-      setMessages(prev => prev.filter(msg => msg.id !== messageId));
-      toast.success('Message deleted');
-    });
-    
-    newSocket.on('message-edited', ({ messageId, newContent }) => {
-      setMessages(prev => prev.map(msg => 
-        msg.id === messageId ? { ...msg, content: newContent, isEdited: true } : msg
-      ));
-      toast.success('Message edited');
-    });
-    
-    newSocket.on('reaction-added', ({ messageId, emoji, username }) => {
-      setMessages(prev => prev.map(msg => {
-        if (msg.id === messageId) {
-          const reactions = msg.reactions || {};
-          if (!reactions[emoji]) {
-            reactions[emoji] = [];
-          }
-          if (!reactions[emoji].includes(username)) {
-            reactions[emoji].push(username);
-          }
-          return { ...msg, reactions };
-        }
-        return msg;
-      }));
-    });
-    
-    return () => {
-      newSocket.close();
-    };
-  }, [circleId, token, user?.id, fetchCircleDetails, fetchMembers, fetchMessages, scrollToBottom]);
-  
-  const sendMessage = async (e) => {
+  };
+
+  const stopTyping = () => {
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    if (socket && isTyping) {
+      socket.emit('stop-typing', {
+        circleId: parseInt(actualCircleId, 10),
+      });
+    }
+    setIsTyping(false);
+  };
+
+  const startTyping = () => {
+    if (!socket) return;
+
+    if (!isTyping) {
+      socket.emit('typing', {
+        circleId: parseInt(actualCircleId, 10),
+      });
+      setIsTyping(true);
+    }
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      stopTyping();
+    }, 1500);
+  };
+
+  const sendMessage = (e) => {
     e.preventDefault();
     if (!inputMessage.trim()) return;
-    
+
     if (socket) {
       socket.emit('send-message', {
-        circleId: parseInt(circleId),
-        content: inputMessage
+        circleId: parseInt(actualCircleId, 10),
+        content: inputMessage,
       });
       setInputMessage('');
-      setShowEmojiPicker(false);
-      
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-      socket.emit('typing', { circleId, isTyping: false });
+      stopTyping();
     }
   };
-  
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage(e);
+
+  const handleBack = () => {
+    if (onBack) {
+      onBack();
+    } else {
+      navigate(-1);
     }
   };
-  
-  const handleTyping = () => {
-    if (!socket) return;
-    
-    socket.emit('typing', { circleId, isTyping: true });
-    
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    typingTimeoutRef.current = setTimeout(() => {
-      socket.emit('typing', { circleId, isTyping: false });
-    }, 1000);
-  };
-  
-  const handleImageUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    if (!file.type.startsWith('image/')) {
-      toast.error('Please select an image file');
-      return;
-    }
-    
-    setUploadingImage(true);
-    const formData = new FormData();
-    formData.append('image', file);
-    
-    try {
-      const res = await axios.post(`${API_URL}/api/upload`, formData, {
-        headers: { 
-          'Content-Type': 'multipart/form-data',
-          Authorization: `Bearer ${token}`
-        }
-      });
-      
-      if (socket) {
-        socket.emit('send-message', {
-          circleId: parseInt(circleId),
-          content: '📷 Image',
-          type: 'image',
-          imageUrl: res.data.url
-        });
-      }
-      toast.success('Image sent!');
-    } catch (err) {
-      toast.error('Failed to upload image');
-    } finally {
-      setUploadingImage(false);
-      e.target.value = '';
-    }
-  };
-  
-  const deleteMessage = (messageId) => {
-    if (socket && window.confirm('Delete this message?')) {
-      socket.emit('delete-message', { messageId, circleId });
-    }
-  };
-  
-  const editMessage = (messageId) => {
-    const message = messages.find(m => m.id === messageId);
-    setEditingMessage(messageId);
-    setEditContent(message.content);
-  };
-  
-  const saveEdit = () => {
-    if (!editContent.trim()) return;
-    
-    if (socket) {
-      socket.emit('edit-message', { 
-        messageId: editingMessage, 
-        circleId, 
-        newContent: editContent 
-      });
-      setEditingMessage(null);
-      setEditContent('');
-    }
-  };
-  
-  const addReaction = (messageId, emoji) => {
-    if (socket) {
-      socket.emit('add-reaction', { 
-        messageId, 
-        circleId, 
-        emoji, 
-        username: user?.username
-      });
-    }
-  };
-  
-  const formatTime = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-  
-  const onEmojiClick = (emojiData) => {
-    setInputMessage(prev => prev + emojiData.emoji);
-    setShowEmojiPicker(false);
-  };
-  
-  if (loading) {
-    return (
-      <div className={`chat-loading ${darkMode ? 'dark' : ''}`}>
-        <div className="skeleton"></div>
-        <div className="skeleton"></div>
-      </div>
-    );
+
+  const formatTime = (date) => new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  if (!actualCircleId) {
+    return <div style={{ padding: '20px', textAlign: 'center' }}>Circle not found.</div>;
   }
-  
+
+  if (loading) return <div style={{ padding: '20px', textAlign: 'center' }}>Loading...</div>;
+
   return (
-    <div className={`chat-container ${darkMode ? 'dark' : ''}`}>
-      {/* Chat Header */}
-      <div className="chat-header">
-        <button className="back-btn" onClick={onBack}>
-          <FiArrowLeft />
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: darkMode ? '#1a1a2e' : '#f0f2f5' }}>
+      <div style={{ padding: '16px', background: darkMode ? '#16213e' : 'white', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: '16px', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <button onClick={handleBack} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer' }}>←</button>
+          <h3>{circle?.name}</h3>
+        </div>
+        <button onClick={() => navigate(`/circle/${actualCircleId}/meeting`)} style={{ padding: '10px 16px', background: '#10b981', color: 'white', border: 'none', borderRadius: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <FiVideo /> Start Meeting
         </button>
-        <div className="chat-info" onClick={() => setShowInfo(!showInfo)}>
-          <div className="chat-avatar">
-            <FiUsers />
-          </div>
+      </div>
+
+      <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+        <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
           <div>
-            <h3>{circle?.name}</h3>
-            <div className="member-status">
-              <span className="online-dot"></span>
-              <span>{onlineCount} online • {members.length} members</span>
-            </div>
-          </div>
-        </div>
-        <button className="info-btn" onClick={() => setShowInfo(!showInfo)}>
-          <FiInfo />
-        </button>
-      </div>
-      
-      {/* Typing Indicator */}
-      {typingUsers.size > 0 && (
-        <div className="typing-indicator">
-          <div className="typing-dots">
-            <span></span><span></span><span></span>
-          </div>
-          <span>{Array.from(typingUsers).join(', ')} is typing...</span>
-        </div>
-      )}
-      
-      {/* Messages */}
-      <div className="messages-area">
-        {messages.length === 0 ? (
-          <div className="empty-chat">
-            <div className="empty-icon">💬</div>
-            <h3>No messages yet</h3>
-            <p>Start the conversation!</p>
-          </div>
-        ) : (
-          messages.map((msg) => {
-            const isOwn = msg.user_id === user?.id;
-            
-            return (
-              <div key={msg.id} className={`message-row ${isOwn ? 'own' : 'other'}`}>
-                {!isOwn && (
-                  <div className="message-avatar">
-                    <span>{msg.username?.[0]?.toUpperCase()}</span>
-                  </div>
-                )}
-                <div className="message-wrapper">
-                  {!isOwn && <div className="message-name">{msg.username}</div>}
-                  <div className="message-bubble-wrapper">
-                    <div className={`message-bubble ${msg.type === 'image' ? 'image-message' : ''}`}>
-                      {msg.type === 'image' ? (
-                        <img src={msg.image_url} alt="Shared" onClick={() => window.open(msg.image_url)} />
-                      ) : editingMessage === msg.id ? (
-                        <div className="edit-input">
-                          <input type="text" value={editContent} onChange={(e) => setEditContent(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && saveEdit()} autoFocus />
-                          <button onClick={saveEdit}>Save</button>
-                          <button onClick={() => setEditingMessage(null)}>Cancel</button>
-                        </div>
-                      ) : (
-                        <p>{msg.content}{msg.isEdited && <span className="edited-badge"> edited</span>}</p>
-                      )}
-                      
-                      {/* Reactions */}
-                      {msg.reactions && Object.keys(msg.reactions).length > 0 && (
-                        <div className="reactions">
-                          {Object.entries(msg.reactions).map(([emoji, users]) => (
-                            <span key={emoji} className="reaction">{emoji} {users.length}</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    
-                    {isOwn && !editingMessage && (
-                      <div className="message-menu">
-                        <button onClick={() => addReaction(msg.id, '👍')}>👍</button>
-                        <button onClick={() => addReaction(msg.id, '❤️')}>❤️</button>
-                        <button onClick={() => addReaction(msg.id, '😂')}>😂</button>
-                        <button onClick={() => editMessage(msg.id)}><FiEdit2 /></button>
-                        <button onClick={() => deleteMessage(msg.id)}><FiTrash2 /></button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="message-time">
-                    {formatTime(msg.sent_at)}
-                    {isOwn && <FiCheck />}
-                  </div>
-                </div>
-              </div>
-            );
-          })
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-      
-      {/* Input Area */}
-      <form className="chat-input-area" onSubmit={sendMessage}>
-        <div className="input-tools">
-          <button type="button" onClick={() => fileInputRef.current?.click()}><FiImage /></button>
-          <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)}><FiSmile /></button>
-          <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" style={{ display: 'none' }} />
-        </div>
-        <input type="text" value={inputMessage} onChange={(e) => { setInputMessage(e.target.value); handleTyping(); }} onKeyPress={handleKeyPress} placeholder="Type a message..." className="message-input" />
-        <button type="submit" disabled={!inputMessage.trim() && !uploadingImage} className="send-btn">{uploadingImage ? <div className="spinner small"></div> : <FiSend />}</button>
-        
-        {showEmojiPicker && (
-          <div className="emoji-picker-container">
-            <EmojiPicker onEmojiClick={onEmojiClick} />
-          </div>
-        )}
-      </form>
-      
-      {/* Info Sidebar */}
-      {showInfo && (
-        <div className="info-sidebar">
-          <div className="info-header">
-            <h3>Circle Info</h3>
-            <button onClick={() => setShowInfo(false)}><FiX /></button>
-          </div>
-          <div className="info-content">
-            <div className="info-section">
-              <h4>Members ({members.length})</h4>
-              {members.map(member => (
-                <div key={member.id} className="member-item">
-                  <div className="member-avatar">
-                    <span>{member.username?.[0]?.toUpperCase()}</span>
-                  </div>
-                  <div className="member-info">
-                    <span className="member-name">{member.username}</span>
-                  </div>
-                </div>
+            <strong>Participants:</strong> {participants.length}
+            <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {participants.map((participant) => (
+                <span key={participant.id} style={{ padding: '6px 10px', background: darkMode ? '#243b55' : '#f3f4f6', borderRadius: '999px', fontSize: '12px' }}>
+                  {participant.username}
+                </span>
               ))}
             </div>
           </div>
+          <div style={{ minWidth: '160px', textAlign: 'right' }}>
+            <TypingIndicator users={typingUsers} />
+          </div>
         </div>
-      )}
+
+        {messages.map((msg) => (
+          <div key={msg.id} style={{ display: 'flex', justifyContent: msg.user_id === user?.id ? 'flex-end' : 'flex-start', marginBottom: '16px' }}>
+            <div style={{ maxWidth: '70%', background: msg.user_id === user?.id ? '#667eea' : 'white', color: msg.user_id === user?.id ? 'white' : 'black', padding: '10px 16px', borderRadius: '18px' }}>
+              {msg.user_id !== user?.id && <small style={{ display: 'block', marginBottom: '4px' }}>{msg.username}</small>}
+              <p style={{ margin: 0 }}>{msg.content}</p>
+              <small style={{ fontSize: '10px', opacity: 0.7 }}>{formatTime(msg.sent_at)}</small>
+            </div>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <form onSubmit={sendMessage} style={{ padding: '16px', background: darkMode ? '#16213e' : 'white', borderTop: '1px solid #e5e7eb', display: 'flex', gap: '12px' }}>
+        <input
+          type="text"
+          value={inputMessage}
+          onChange={(e) => {
+            setInputMessage(e.target.value);
+            startTyping();
+          }}
+          onBlur={stopTyping}
+          placeholder="Type a message..."
+          style={{ flex: 1, padding: '12px', border: '1px solid #ddd', borderRadius: '24px', outline: 'none' }}
+        />
+        <button type="submit" style={{ padding: '8px 24px', background: '#667eea', color: 'white', border: 'none', borderRadius: '24px', cursor: 'pointer' }}>
+          <FiSend />
+        </button>
+      </form>
+
+      <AIAssistant currentMessage={inputMessage} onSuggestionClick={setInputMessage} messages={messages} />
     </div>
   );
 }

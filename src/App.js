@@ -2,6 +2,8 @@ import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import './styles/globals.css';
+import { auth } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 // Create Contexts here directly to avoid import issues
 export const AuthContext = React.createContext();
@@ -37,6 +39,21 @@ function App() {
       localStorage.removeItem('user');
     }
   }, [token]);
+
+  // Sync with Firebase Auth state: set token and user on login/logout
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      if (fbUser) {
+        const idToken = await fbUser.getIdToken();
+        setToken(idToken);
+        setUser({ id: fbUser.uid, username: fbUser.displayName || fbUser.email });
+      } else {
+        setToken(null);
+        setUser(null);
+      }
+    });
+    return () => unsubscribe();
+  }, [setToken, setUser]);
 
   useEffect(() => {
     localStorage.setItem('darkMode', JSON.stringify(darkMode));

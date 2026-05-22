@@ -2,7 +2,6 @@ import React, { useState, useContext } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { AuthContext } from '../App';
-import API_URL from '../config';
 
 function Login() {
   const { setToken, setUser } = useContext(AuthContext);
@@ -16,14 +15,19 @@ function Login() {
     setLoading(true);
     
     try {
-      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/signup';
-      const res = await axios.post(`${API_URL}${endpoint}`, { username, password });
-      setToken(res.data.token);
-      setUser(res.data.user);
-      localStorage.setItem('user', JSON.stringify(res.data.user));
-      toast.success(isLogin ? 'Welcome back!' : 'Account created!');
+      const url = `https://circlechat-backend.onrender.com/api/${isLogin ? 'login' : 'signup'}`;
+      const response = await axios.post(url, { username, password });
+      
+      if (response.data.token) {
+        setToken(response.data.token);
+        setUser(response.data.user);
+        localStorage.setItem('token', response.data.token);
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+        toast.success(isLogin ? 'Welcome back!' : 'Account created!');
+        window.location.href = '/';
+      }
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Something went wrong');
+      toast.error(err.response?.data?.error || 'Connection failed');
     } finally {
       setLoading(false);
     }
@@ -55,17 +59,12 @@ function Login() {
               <circle cx="16" cy="10" r="2" fill="#667eea"/>
             </svg>
           </div>
-          <h1 style={{ color: 'white', fontSize: '42px', marginBottom: '8px' }}>CircleChat</h1>
-          <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '16px' }}>Connect with your circles</p>
+          <h1 style={{ color: 'white', fontSize: '42px' }}>CircleChat</h1>
+          <p style={{ color: 'rgba(255,255,255,0.8)' }}>Connect with your circles</p>
         </div>
         
-        <div style={{ 
-          background: 'white', 
-          borderRadius: '24px', 
-          padding: '32px', 
-          boxShadow: '0 20px 40px rgba(0,0,0,0.1)' 
-        }}>
-          <h2 style={{ textAlign: 'center', marginBottom: '24px', color: '#333' }}>
+        <div style={{ background: 'white', borderRadius: '24px', padding: '32px' }}>
+          <h2 style={{ textAlign: 'center', marginBottom: '24px' }}>
             {isLogin ? 'Welcome Back' : 'Create Account'}
           </h2>
           
@@ -75,16 +74,7 @@ function Login() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Username"
-              style={{ 
-                width: '100%', 
-                padding: '14px', 
-                marginBottom: '16px', 
-                border: '1px solid #e0e0e0', 
-                borderRadius: '12px', 
-                fontSize: '16px',
-                outline: 'none',
-                transition: 'border-color 0.3s'
-              }}
+              style={{ width: '100%', padding: '14px', marginBottom: '16px', border: '1px solid #ddd', borderRadius: '12px', fontSize: '16px' }}
               required
             />
             <input
@@ -92,35 +82,13 @@ function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
-              style={{ 
-                width: '100%', 
-                padding: '14px', 
-                marginBottom: '24px', 
-                border: '1px solid #e0e0e0', 
-                borderRadius: '12px', 
-                fontSize: '16px',
-                outline: 'none',
-                transition: 'border-color 0.3s'
-              }}
+              style={{ width: '100%', padding: '14px', marginBottom: '24px', border: '1px solid #ddd', borderRadius: '12px', fontSize: '16px' }}
               required
             />
             <button
               type="submit"
               disabled={loading}
-              style={{ 
-                width: '100%', 
-                padding: '14px', 
-                background: '#007aff', 
-                color: 'white', 
-                border: 'none', 
-                borderRadius: '12px', 
-                fontSize: '16px', 
-                fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'background 0.3s'
-              }}
-              onMouseEnter={(e) => e.target.style.background = '#0051b3'}
-              onMouseLeave={(e) => e.target.style.background = '#007aff'}
+              style={{ width: '100%', padding: '14px', background: '#007aff', color: 'white', border: 'none', borderRadius: '12px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }}
             >
               {loading ? 'Loading...' : (isLogin ? 'Sign In' : 'Sign Up')}
             </button>
@@ -129,14 +97,7 @@ function Login() {
           <div style={{ textAlign: 'center', marginTop: '24px' }}>
             <button
               onClick={() => setIsLogin(!isLogin)}
-              style={{ 
-                background: 'none', 
-                border: 'none', 
-                color: '#007aff', 
-                cursor: 'pointer',
-                fontSize: '14px',
-                fontWeight: '500'
-              }}
+              style={{ background: 'none', border: 'none', color: '#007aff', cursor: 'pointer' }}
             >
               {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
             </button>

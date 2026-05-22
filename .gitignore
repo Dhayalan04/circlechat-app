@@ -5,6 +5,13 @@
 /.pnp
 .pnp.js
 
+# ignore nested node_modules in subfolders
+**/node_modules/
+
+# Firebase
+.firebase/
+firebase-debug.log
+
 # testing
 /coverage
 
