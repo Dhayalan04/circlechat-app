@@ -31,6 +31,9 @@
     "serve:functions": "firebase emulators:start --only functions,hosting",
     "deploy": "firebase deploy --only hosting,functions"
   },
+  "engines": {
+    "node": "18.x"
+  },
   "eslintConfig": {
     "extends": "react-app"
   },
