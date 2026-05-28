@@ -1,6 +1,8 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import './index.css';
+import './App.css';
 import './styles/globals.css';
 import { auth } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -21,15 +23,21 @@ const LoadingSpinner = () => (
 );
 
 function App() {
-  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [token, setToken] = useState(() => localStorage.getItem('token'));
   const [user, setUser] = useState(() => {
-    const savedUser = localStorage.getItem('user');
-    return savedUser ? JSON.parse(savedUser) : null;
+    try {
+      const savedUser = localStorage.getItem('user');
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch (error) {
+      console.warn('Failed to parse saved user from localStorage:', error);
+      return null;
+    }
   });
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved ? JSON.parse(saved) : false;
   });
+  const [authInitializing, setAuthInitializing] = useState(true);
 
   useEffect(() => {
     if (token) {
@@ -39,6 +47,14 @@ function App() {
       localStorage.removeItem('user');
     }
   }, [token]);
+
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem('user', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('user');
+    }
+  }, [user]);
 
   // Sync with Firebase Auth state: set token and user on login/logout
   useEffect(() => {
@@ -51,7 +67,9 @@ function App() {
         setToken(null);
         setUser(null);
       }
+      setAuthInitializing(false);
     });
+
     return () => unsubscribe();
   }, [setToken, setUser]);
 
@@ -61,6 +79,17 @@ function App() {
 
   const authValue = { token, setToken, user, setUser };
   const darkModeValue = { darkMode, setDarkMode };
+
+  if (authInitializing) {
+    return (
+      <AuthContext.Provider value={authValue}>
+        <DarkModeContext.Provider value={darkModeValue}>
+          <Toaster position="top-right" />
+          <LoadingSpinner />
+        </DarkModeContext.Provider>
+      </AuthContext.Provider>
+    );
+  }
 
   if (!token) {
     return (
